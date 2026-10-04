@@ -50,7 +50,7 @@ from core import (LEAVE_KINDS, DAY_STATUS_LABEL, LEAVE_STATUS_LABEL, add_leave, 
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 STATIC_DIR = os.path.join(BASE_DIR, "static")
-VERSION = "4.5.0"
+VERSION = "4.6.0"
 
 MIME = {".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8",
         ".js": "application/javascript; charset=utf-8", ".json": "application/json; charset=utf-8",
@@ -197,7 +197,9 @@ def r_meta(h, ident):
         "workdays": core.workday_list(),
         "workdays_label": ", ".join(core.WEEKDAY_MN[d] for d in core.workday_list()),
         "geofence": {"enabled": s["geofence_enabled"] == "1", "name": s["geofence_name"],
-                     "radius_m": float(s["geofence_radius_m"])},
+                     "radius_m": float(s["geofence_radius_m"]),
+                     # v4.6: демо байршлын товч (GPS ажиллахгүй үед) + газрын зурагт хэрэглэнэ
+                     "lat": float(s["geofence_lat"] or 0), "lng": float(s["geofence_lng"] or 0)},
         "demo_mode": s["demo_mode"] == "1",
         "server_time": now_local().strftime("%Y-%m-%d %H:%M:%S"),
         "weekday_mn": core.WEEKDAY_MN[core.now_local().isoweekday()],
@@ -1265,6 +1267,9 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(data)))
         self.send_header("Cache-Control", "no-cache")
+        # v4.6: Service Worker /static/ дотор байгаа ч бүх сайтыг хамарна
+        if os.path.basename(full) == "sw.js":
+            self.send_header("Service-Worker-Allowed", "/")
         self.end_headers()
         self.wfile.write(data)
 

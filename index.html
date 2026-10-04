@@ -2,8 +2,21 @@
 <html lang="mn">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Цаг бүртгэл ба ирцийн систем</title>
+
+<!-- ============ v4.6: ГАР УТСАН (iOS + Android) — PWA тохиргоо ============ -->
+<link rel="manifest" href="/static/app.webmanifest">
+<meta name="theme-color" content="#0f2137">
+<link rel="icon" type="image/png" sizes="32x32" href="/static/icons/favicon-32.png">
+<link rel="icon" type="image/png" sizes="192x192" href="/static/icons/icon-192.png">
+<link rel="apple-touch-icon" sizes="180x180" href="/static/icons/apple-touch-icon-180.png">
+<!-- iOS: Safari-д бүтэн дэлгэцээр, статус мөр нэгдэж ажиллана -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Цаг бүртгэл">
+<meta name="format-detection" content="telephone=no">
 <style>
 :root{
   --navy:#0f2137; --navy2:#17324f; --blue:#2f5597; --blue2:#3b82f6;
@@ -17,9 +30,16 @@ body{
   font-family:'Segoe UI',system-ui,-apple-system,'Noto Sans',Roboto,Arial,sans-serif;
   background:var(--bg); color:var(--ink); font-size:15px; line-height:1.5;
   -webkit-font-smoothing:antialiased;
+  /* v4.6: iPhone home indicator / Android gesture bar-тай давхцахгүй */
+  padding-bottom:env(safe-area-inset-bottom,0px);
+  -webkit-text-size-adjust:100%;
 }
+/* v4.6: санамсаргүй товшилт, текстийн сонголт, хос товшилтын зум */
+button,.btn,.tab,.bigbtn,.chip{-webkit-tap-highlight-color:transparent;touch-action:manipulation}
+.bigbtn .lbl,.bigbtn .hintl,.tab,th{-webkit-user-select:none;user-select:none}
+input,select,textarea{font-size:16px} /* iOS/Safari: focus хийхэд автомат зум хийхгүй */
 button{font-family:inherit;font-size:inherit;cursor:pointer}
-input,select,textarea{font-family:inherit;font-size:15px}
+input,select,textarea{font-family:inherit;font-size:16px} /* v4.6: iOS автомат зумыг сэргийлнэ */
 a{color:var(--blue2)}
 .hidden{display:none !important}
 
@@ -107,6 +127,10 @@ tr.onsite td:first-child{box-shadow:inset 4px 0 0 var(--green2)}
 .txt-green{color:var(--green);font-weight:700}
 .txt-amber{color:var(--amber);font-weight:700}
 .tbl-scroll{overflow-x:auto;border:1px solid var(--line);border-radius:12px}
+/* v4.6: урт утгатай select/товч хуудсыг халиахгүй (гар утсанд онцгой чухал) */
+select{max-width:100%}
+.row{min-width:0}
+.row > *{min-width:0}
 .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12.5px}
 
 .tiles{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}
@@ -206,7 +230,8 @@ tr.onsite td:first-child{box-shadow:inset 4px 0 0 var(--green2)}
 /* ---------- Тост ---------- */
 #toasts{position:fixed;top:14px;right:14px;z-index:200;display:flex;flex-direction:column;gap:10px;max-width:390px;pointer-events:none}
 .toast{background:#fff;border-left:5px solid var(--blue);border-radius:11px;padding:12px 14px;
-  box-shadow:0 10px 28px rgba(15,23,42,.2);animation:sl .25s ease;font-size:14px}
+  box-shadow:0 10px 28px rgba(15,23,42,.2);animation:sl .25s ease;font-size:14px;
+  min-width:0;overflow-wrap:anywhere}
 .toast.ok{border-left-color:var(--green2)} .toast.err{border-left-color:var(--red)}
 .toast.warn{border-left-color:#f59e0b}
 .toast b{display:block;margin-bottom:2px}
@@ -243,6 +268,61 @@ code.k{background:#eef2f7;border-radius:6px;padding:2px 6px;font-size:12.5px}
 @media (max-width:820px){
   .login-card{grid-template-columns:1fr}
   .login-left{display:none}
+}
+
+/* ---------- v4.6: ГАР УТСАН (iOS / Android) — хүрэхэд эвтэй ---------- */
+@media (pointer:coarse), (max-width:700px){
+  header.topbar{padding:10px 12px;gap:10px;padding-top:calc(10px + env(safe-area-inset-top,0px))}
+  header.topbar .brand{font-size:15.5px}
+  header.topbar .who{font-size:12px}
+  .wrap{padding:14px 12px 72px}
+  .card{padding:14px;border-radius:13px}
+  /* Хүрэх талбар: Apple/Google-ийн зөвлөсөн доод хэмжээ 44px */
+  .btn,.tab,.chip,.seg button{min-height:44px}
+  .btn{padding:11px 15px}
+  .btn.small{min-height:40px;padding:9px 13px;font-size:14px}
+  .tab{padding:12px 15px;font-size:14.5px}
+  .seg button{padding:12px}
+  .chip{padding:8px 12px;min-height:38px}
+  .login-right{padding:20px 16px}
+  .login-wrap{padding:16px 12px}
+  input[type=text],input[type=password],input[type=number],input[type=time],
+  input[type=date],input[type=month],select,textarea{padding:12px;border-radius:11px}
+  /* Толгойн товчнууд багана бүрд эвхэгдэнэ */
+  header.topbar .spacer{flex-basis:100%;height:0}
+  header.topbar .clock-badge{order:9;margin-left:auto;padding:3px 10px}
+  header.topbar .who{order:8}
+  /* Модал: доороос гарч ирэх хуудас шиг (гар утсанд эвтэй) */
+  .overlay{padding:0;place-items:end center}
+  .modal{max-width:none;width:100%;max-height:94vh;border-radius:18px 18px 0 0;
+         padding:18px 16px calc(20px + env(safe-area-inset-bottom,0px))}
+  .modal .actions .btn{flex:1 1 44%}
+  #toasts{left:10px;right:10px;top:calc(10px + env(safe-area-inset-top,0px));max-width:none}
+  .tbl-scroll{-webkit-overflow-scrolling:touch}
+  table{font-size:13px}
+  th,td{padding:8px 8px;font-size:13px}
+  th{font-size:11.5px}
+  .matrix{font-size:10px}
+  .mx{width:19px;height:19px;border-radius:4px}
+  /* Ажилтны «Ажилд орох / Ажлаас буух» — утсанд бүтэн өргөн, дээрээс доош */
+  .emp-actions{grid-template-columns:1fr !important}
+  .bigbtn{padding:26px 16px;border-radius:18px}
+  .bigbtn .ico{font-size:36px}
+  .bigbtn .lbl{font-size:19px}
+  .worktimer{font-size:30px}
+  .status-hero .big{font-size:19px}
+  .tile .v{font-size:20px}
+  .tiles{grid-template-columns:repeat(auto-fit,minmax(130px,1fr))}
+  .kvrow{grid-template-columns:1fr}
+  .geo-map{height:170px}
+  .map-box{height:300px}
+  .map-prev{height:150px}
+  .g2,.g3,.g4{grid-template-columns:1fr}
+}
+
+/* iOS Safari: 100vh асуудлыг шийдэж, нэвтрэх дэлгэц бүтэн харагдана */
+@supports (-webkit-touch-callout:none){
+  .login-wrap{min-height:-webkit-fill-available}
 }
 .print-only{display:none}
 @media print{
@@ -955,7 +1035,7 @@ function loginView(){
       </div>
       ${S.seg==='admin' ? adminLoginForm() : empLoginForm()}
       <div class="footer-note" style="margin-top:18px">
-        Техникийн дэмжлэг: <span class="mono">/api/health</span> · Хувилбар 4.5.0
+        Техникийн дэмжлэг: <span class="mono">/api/health</span> · Хувилбар 4.6.0
       </div>
     </div></div></div>`;
 }
@@ -1066,7 +1146,7 @@ function employeeView(){
 
         <div class="card">
           <h3>Бүртгэл хийх</h3>
-          <div class="grid" style="grid-template-columns:1fr 1fr;gap:12px">
+          <div class="grid emp-actions" style="grid-template-columns:1fr 1fr;gap:12px">
             <button class="bigbtn in" id="btnIn" ${canIn?'':'disabled'}>
               <span class="ico">${ic('arrowRight',30)}</span><span class="lbl">Ажилд орох</span>
               <span class="hintl">${canIn?'Бүртгүүлэх':'Бүртгэл хийгдсэн'}</span></button>
@@ -2234,6 +2314,10 @@ function adminMatrix(){
         <button class="btn small" data-act="print">${ic('print')} Хэвлэх / PDF</button>
       </div>
     </div>
+    ${(S.meta && S.meta.demo_mode) ? `<div class="row" style="margin:0 0 10px">
+      <button class="btn small" data-act="geodemo">${ic('pin')} Демо байршлаар тэмдэглэх</button>
+      <span class="small">Жинхэнэ GPS ажиллахгүй бол (компьютер, гадаад сүлжээ) ажлын байрны координатаар тэмдэглэнэ.</span>
+    </div>` : ''}
     <div class="tbl-scroll" style="padding:10px"><table class="matrix">
       <thead><tr><th style="text-align:left;min-width:190px">Ажилтны нэр</th>
         ${m.days.map(d=>`<th title="${esc(d.date)}">${d.day}<div style="font-size:9px">${esc(d.weekday_short[0])}</div></th>`).join('')}
@@ -2594,7 +2678,7 @@ function adminConfig(){
       <div class="kv"><span class="k">Цагийн бүс</span><span class="v">${esc(s.timezone||'')}</span></div>
       <div class="kv"><span class="k">Серверийн цаг</span><span class="v">${esc(S.meta?S.meta.server_time:'')}</span></div>
       <div class="kv"><span class="k">Ажлын өдрүүд</span><span class="v">${esc(S.meta?S.meta.workdays_label:'')}</span></div>
-      <div class="kv"><span class="k">Хувилбар</span><span class="v">4.5.0</span></div>
+      <div class="kv"><span class="k">Хувилбар</span><span class="v">4.6.0</span></div>
     </div>
   </div>`;
 }
@@ -2910,6 +2994,13 @@ function bind(){
       S.view='login'; S.seg='emp'; S.offset=0; render(); toast('Системээс гарлаа.','info'); };
     if (act==='geocheck') el.onclick = async ()=>{ if(!S.geoBusy){ S.geoBusy=true;
       await geoCheckUI(); S.geoBusy=false; } };
+    // v4.6: GPS ажиллахгүй үед (компьютер, гадаадаас нэвтэрсэн) демо байршлаар үргэлжлүүлэх
+    if (act==='geodemo') el.onclick = ()=>{
+      const g = (S.meta && S.meta.geofence) || {};
+      S.geo = {latitude:g.lat, longitude:g.lng, accuracy:0, demo:true, manual:true};
+      toast('«'+((g.name)||'Ажлын байр')+'» байршлаар тэмдэглэв (демо горим).','info','Байршил');
+      if (typeof render === 'function') render();
+    };
     if (act==='tab') el.onclick = ()=>{ S.tab = el.dataset.tab; render(); loadTabData(); };
     if (act==='notif') el.onclick = async ()=>{ await loadNotifs();
       modal(notifPanelHTML());
@@ -3468,12 +3559,59 @@ async function boot(){
   }
 }
 document.addEventListener('DOMContentLoaded', boot);
+
+/* ================= v4.6: ГАР УТСАН — PWA ================= */
+// Service worker: offline үед нэвтрэх хуудас, аппын бүрхүүл кэшнээс ажиллана.
+// (Зөвхөн http/https; file:// эсвэл демо HTML дээр алгасна)
+if ('serviceWorker' in navigator && location.protocol.startsWith('http')){
+  window.addEventListener('load', ()=>{
+    navigator.serviceWorker.register('/static/sw.js', {scope:'/'}).catch(()=>{});
+  });
+}
+function isStandalone(){
+  return (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches)
+      || window.navigator.standalone === true;
+}
+function isIOS(){
+  return /iPad|iPhone|iPod/.test(navigator.userAgent)
+      || (navigator.platform==='MacIntel' && navigator.maxTouchPoints > 1);
+}
+function a2hsHTML(){
+  if (!isIOS() || isStandalone()) return '';
+  if (localStorage.getItem('a2hs_off') === '1') return '';
+  return `<div class="alert blue no-print" id="a2hsBox" style="align-items:center">
+    <span class="ico">📲</span>
+    <div style="flex:1">
+      <b>Утсанд суулгах:</b> Safari-гийн доод <b>Хуваалцах</b> товч (□↑) →
+      <b>«Add to Home Screen»</b> («Дэлгэцэнд нэмэх») сонгоно уу.
+      Дараа нь төмөр зам, камер, GPS-тэй бүрэн ажиллана.
+    </div>
+    <button class="btn small" id="a2hsNo">Ойлголоо</button></div>`;
+}
+window.__a2hs = ()=>{
+  const box = document.getElementById('a2hsBox');
+  if (box){ box.remove(); localStorage.setItem('a2hs_off','1'); }
+};
 // v4.4: хэвлэх үед модаль нээлттэй бол зөвхөн түүнийг, эс бөгөөс идэвхтэй табыг хэвлэнэ
 window.addEventListener('beforeprint', ()=>{
   document.body.classList.toggle('print-modal', !!document.querySelector('#overlay'));
 });
 window.addEventListener('afterprint', ()=> document.body.classList.remove('print-modal'));
 window.addEventListener('keydown', e=>{ if(e.key==='Escape') closeModal(); });
+// v4.6: iOS home screen зөвлөмж — нэвтэрсний дараа, нэг удаа
+(function(){
+  try{
+    setInterval(()=>{
+      const box = a2hsHTML();
+      if (!box || document.getElementById('a2hsBox')) return;
+      if (!S.me || S.view==='login') return;
+      const host = document.querySelector('.wrap');
+      if (!host || !host.firstChild) return;
+      host.insertAdjacentHTML('afterbegin', box);
+      const b = document.getElementById('a2hsNo'); if (b) b.onclick = window.__a2hs;
+    }, 1200);
+  }catch(e){}
+})();
 </script>
 </body>
 </html>
