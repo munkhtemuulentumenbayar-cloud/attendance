@@ -1,0 +1,20 @@
+[Unit]
+Description=Цаг бүртгэл ба ирцийн систем (Attendance System)
+After=network.target
+
+[Service]
+Type=simple
+User=www-data
+WorkingDirectory=/opt/attendance
+Environment=TZ=Asia/Ulaanbaatar
+Environment=HOST=127.0.0.1
+Environment=PORT=8000
+Environment=ATTENDANCE_DB=/opt/attendance/data/attendance.db
+ExecStart=/usr/bin/python3 /opt/attendance/app.py
+Restart=always
+RestartSec=3
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
