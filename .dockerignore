@@ -1,0 +1,19 @@
+# Docker build context-оос хасна (build хурдан, image жижиг)
+.git/
+.gitignore
+data/
+exports/
+screenshots/
+tests/
+deploy/DEPLOY.md
+*.zip
+*.db
+*.db-wal
+*.db-shm
+preview_demo.html
+preview_demo_data.json
+__pycache__/
+*.pyc
+.DS_Store
+node_modules/
+_patch_*.py

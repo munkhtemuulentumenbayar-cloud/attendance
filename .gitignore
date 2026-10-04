@@ -1,0 +1,24 @@
+# ── Өгөгдөл ба нууц мэдээлэл (ХЭЗЭЭ Ч GitHub руу оруулахгүй) ──
+data/
+*.db
+*.db-wal
+*.db-shm
+.env
+.env.*
+
+# ── Үүсгэгддэг файлууд ──
+exports/
+screenshots/
+preview_demo.html
+preview_demo_data.json
+*.zip
+*.xlsx
+_patch_*.py
+
+# ── Хөгжүүлэлт ──
+__pycache__/
+*.pyc
+node_modules/
+.venv/
+venv/
+.DS_Store

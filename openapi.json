@@ -1,0 +1,4178 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Цаг бүртгэл ба ирцийн систем — API",
+    "version": "4.5.0",
+    "description": "Ажилтны ирсэн/явсан цагийг бүртгэж, ажлын хуваарьтай (09:00–19:00, үдийн завсарлага 13:00–14:00 цалинтай) харьцуулан Хоцролт ба Эрт явалтыг минутаар тооцоолно. Нэг ажлын өдөр = 10 цаг (600 мин, үдийн завсарлага орсон); цагийн тариф = өдрийн цалин ÷ 10ц (150 000₮ → 15 000₮/ц), шөнийн 19:00–03:00 нэмэлт цаг = өдрийн цалин ÷ 8ц (150 000₮ → 18 750₮/ц). GPS гео хаалт нь ажлын байрнаас гадуур бүртгэлийг хориглоно. ЗӨВХӨН ГУРВАН ТӨЛӨВ: чөлөө / ирээгүй / хэвийн (+ ажиллаж байна, амралтын өдөр). Чөлөөг ажилтан аппаас ХҮСЭЛТ болгон илгээж, админ МЭДЭГДЛЭЭР батална; батлагдаагүй (хүлээгдэж буй) хүсэлт нь тасалдлыг НӨХӨХГҮЙ. Ажилд ирээгүй, эсвэл ажлаас мэдэгдэлгүй явсан цаг/өдөр нь «ирээгүй» болно. Мэдэгдэл урсгалын хэсэг бүрд очно: хүсэлт → админ, шийдвэр → ажилтан, тасалдал / хаагдаагүй бүртгэл → хоёр тал. Барилгын бригадын цалин: ажилтан тус бүрийн өдрийн цалин, талбай (site) оноолт, шөнийн ээлж (19:00–03:00 бүтэн өдөр; хамгаалалт 50%, ажилчин 100%), нэмэлт цаг, чөлөө (цагаар/өдрөөр), 3 хоног дараалан тасалбал сарын цалин −10%. Ажилтан зөвхөн өөрийн бүртгэл/цаг/цалинг харна (нууцлал). Бүх интерфэйс монгол хэл дээр. AI агентад зориулсан REST API."
+  },
+  "servers": [
+    {
+      "url": "http://localhost:8000",
+      "description": "Локал сервер"
+    }
+  ],
+  "tags": [
+    {
+      "name": "Нээлттэй"
+    },
+    {
+      "name": "Ажилтан"
+    },
+    {
+      "name": "Удирдлага"
+    },
+    {
+      "name": "Чөлөө",
+      "description": "Хүсэлт → мэдэгдэл → шийдвэр → тасалдал нөхөгдөх"
+    },
+    {
+      "name": "Цалин"
+    },
+    {
+      "name": "Ажлын байр"
+    },
+    {
+      "name": "Экспорт"
+    },
+    {
+      "name": "AI Agent"
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "ApiKeyAuth": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-API-Key",
+        "description": "AI агентын API түлхүүр (Удирдлага → AI агент). Демо: att_demo_agent_key_2026"
+      },
+      "SessionCookie": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "att_session",
+        "description": "Ажилтан / админ сесс"
+      },
+      "EmpHeaders": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-Employee-Code",
+        "description": "X-Employee-Pin хамт (агент ажилтны өмнөөс)"
+      }
+    },
+    "schemas": {
+      "Error": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "example": false
+          },
+          "error": {
+            "type": "string",
+            "example": "Та ажлын байрандаа байхгүй байна. Бүртгэл амжилтгүй."
+          }
+        }
+      },
+      "Employee": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "code": {
+            "type": "string",
+            "example": "EMP001"
+          },
+          "full_name": {
+            "type": "string",
+            "example": "Батбаяр Дорж"
+          },
+          "department": {
+            "type": "string"
+          },
+          "position": {
+            "type": "string"
+          },
+          "daily_rate": {
+            "type": "number",
+            "description": "Өдрийн цалин (₮)"
+          },
+          "night_role": {
+            "type": "string",
+            "enum": [
+              "guard",
+              "worker"
+            ]
+          },
+          "site_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "active": {
+            "type": "integer",
+            "enum": [
+              0,
+              1
+            ]
+          }
+        }
+      },
+      "AttendanceRecord": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "employee_id": {
+            "type": "integer"
+          },
+          "work_date": {
+            "type": "string",
+            "format": "date"
+          },
+          "clock_in": {
+            "type": "string",
+            "nullable": true,
+            "description": "Ирсэн цаг"
+          },
+          "clock_out": {
+            "type": "string",
+            "nullable": true,
+            "description": "Явсан цаг"
+          },
+          "clock_in_hm": {
+            "type": "string",
+            "example": "09:12"
+          },
+          "clock_out_hm": {
+            "type": "string",
+            "example": "17:41"
+          },
+          "in_distance_m": {
+            "type": "number",
+            "nullable": true,
+            "description": "Ирэх үеийн гео зай (м)"
+          },
+          "out_distance_m": {
+            "type": "number",
+            "nullable": true
+          },
+          "late_minutes": {
+            "type": "integer",
+            "description": "Хоцролтын минут"
+          },
+          "early_minutes": {
+            "type": "integer",
+            "description": "Эрт явсан минут"
+          },
+          "worked_minutes": {
+            "type": "integer"
+          },
+          "break_minutes": {
+            "type": "integer",
+            "description": "Үдийн завсарлага"
+          },
+          "deduct_minutes": {
+            "type": "integer",
+            "description": "Хасагдсан минут = хоцролт + эрт явсан"
+          },
+          "payable_minutes": {
+            "type": "integer",
+            "description": "Төлбөртэй минут"
+          },
+          "worked_hm": {
+            "type": "string",
+            "example": "8ц 15м"
+          },
+          "payable_hm": {
+            "type": "string",
+            "example": "7ц 30м"
+          },
+          "is_late": {
+            "type": "boolean"
+          },
+          "is_early_leave": {
+            "type": "boolean"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "working",
+              "completed"
+            ]
+          },
+          "note": {
+            "type": "string"
+          }
+        }
+      },
+      "PayrollRow": {
+        "type": "object",
+        "properties": {
+          "employee_id": {
+            "type": "integer"
+          },
+          "code": {
+            "type": "string"
+          },
+          "full_name": {
+            "type": "string"
+          },
+          "position": {
+            "type": "string"
+          },
+          "site_name": {
+            "type": "string"
+          },
+          "daily_rate": {
+            "type": "number",
+            "example": 95000
+          },
+          "day_credit": {
+            "type": "number",
+            "description": "Хөдөлмөрийн өдөр (1.0 = бүтэн өдөр)"
+          },
+          "night_days": {
+            "type": "integer"
+          },
+          "extra_hours": {
+            "type": "number"
+          },
+          "pay_base": {
+            "type": "number"
+          },
+          "pay_extra": {
+            "type": "number"
+          },
+          "leave_pay": {
+            "type": "number"
+          },
+          "absent_days": {
+            "type": "integer"
+          },
+          "absent_streak": {
+            "type": "integer",
+            "description": "Дараалан тасарсан хоног"
+          },
+          "penalty": {
+            "type": "number",
+            "description": "3+ хоног тасарвал сарын цалингийн 10%"
+          },
+          "total": {
+            "type": "number",
+            "description": "Олгох цалин"
+          },
+          "pay_status": {
+            "type": "string",
+            "example": "Шийтгэл −10%"
+          },
+          "color": {
+            "type": "string",
+            "enum": [
+              "green",
+              "orange",
+              "red",
+              "grey",
+              "pink",
+              "teal"
+            ]
+          }
+        }
+      },
+      "Site": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          },
+          "address": {
+            "type": "string"
+          },
+          "lat": {
+            "type": "number"
+          },
+          "lng": {
+            "type": "number"
+          },
+          "radius_m": {
+            "type": "number",
+            "example": 250
+          },
+          "employee_count": {
+            "type": "integer"
+          }
+        }
+      },
+      "Leave": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "employee_id": {
+            "type": "integer"
+          },
+          "code": {
+            "type": "string",
+            "example": "EMP007"
+          },
+          "full_name": {
+            "type": "string",
+            "example": "Эрдэнэбат Цэрэн"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "чөлөө"
+            ],
+            "example": "чөлөө"
+          },
+          "start_date": {
+            "type": "string",
+            "format": "date"
+          },
+          "end_date": {
+            "type": "string",
+            "format": "date"
+          },
+          "all_day": {
+            "type": "integer",
+            "enum": [
+              0,
+              1
+            ]
+          },
+          "start_time": {
+            "type": "string",
+            "nullable": true
+          },
+          "end_time": {
+            "type": "string",
+            "nullable": true
+          },
+          "hours": {
+            "type": "number",
+            "example": 4
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "approved",
+              "rejected",
+              "cancelled"
+            ]
+          },
+          "status_label": {
+            "type": "string",
+            "enum": [
+              "Хүлээгдэж байна",
+              "Батлагдсан",
+              "Татгалзсан",
+              "Цуцлагдсан"
+            ]
+          },
+          "status_color": {
+            "type": "string",
+            "enum": [
+              "amber",
+              "green",
+              "red",
+              "gray"
+            ]
+          },
+          "approved": {
+            "type": "integer",
+            "enum": [
+              0,
+              1
+            ],
+            "description": "status='approved' үед 1"
+          },
+          "paid": {
+            "type": "integer",
+            "enum": [
+              0,
+              1
+            ],
+            "description": "1 = цалинтай (цалинд нэмэгдэнэ)"
+          },
+          "requested_by": {
+            "type": "string",
+            "enum": [
+              "employee",
+              "admin"
+            ]
+          },
+          "decided_at": {
+            "type": "string",
+            "nullable": true
+          },
+          "decided_by": {
+            "type": "string",
+            "nullable": true
+          },
+          "color": {
+            "type": "string",
+            "enum": [
+              "blue",
+              "green",
+              "red",
+              "amber",
+              "gray",
+              "teal",
+              "pink",
+              "orange"
+            ]
+          },
+          "note": {
+            "type": "string"
+          }
+        }
+      },
+      "Photo": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "example": "2026-10/003_20261001_180201_out.jpg"
+          },
+          "url": {
+            "type": "string",
+            "example": "/api/photos?path=2026-10/003_20261001_180201_out.jpg"
+          },
+          "employee_id": {
+            "type": "integer"
+          },
+          "code": {
+            "type": "string",
+            "example": "EMP003"
+          },
+          "full_name": {
+            "type": "string"
+          },
+          "work_date": {
+            "type": "string",
+            "format": "date"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "in",
+              "out",
+              "extra_start",
+              "extra_stop"
+            ]
+          },
+          "taken_at": {
+            "type": "string",
+            "nullable": true
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "camera",
+              "file",
+              "admin"
+            ]
+          }
+        }
+      },
+      "WorkSegment": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "employee_id": {
+            "type": "integer"
+          },
+          "code": {
+            "type": "string"
+          },
+          "full_name": {
+            "type": "string"
+          },
+          "work_date": {
+            "type": "string",
+            "format": "date"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "extra",
+              "night"
+            ]
+          },
+          "start_ts": {
+            "type": "string"
+          },
+          "end_ts": {
+            "type": "string",
+            "nullable": true
+          },
+          "minutes": {
+            "type": "integer",
+            "example": 120
+          },
+          "hours": {
+            "type": "number",
+            "example": 2.0
+          },
+          "pay": {
+            "type": "number",
+            "example": 33333
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "open",
+              "closed",
+              "approved",
+              "rejected"
+            ]
+          },
+          "status_label": {
+            "type": "string"
+          },
+          "note": {
+            "type": "string"
+          },
+          "start_photo": {
+            "type": "string",
+            "nullable": true
+          },
+          "end_photo": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "LivePay": {
+        "type": "object",
+        "properties": {
+          "employee_id": {
+            "type": "integer"
+          },
+          "code": {
+            "type": "string",
+            "example": "EMP001"
+          },
+          "full_name": {
+            "type": "string"
+          },
+          "month": {
+            "type": "string",
+            "example": "2026-10"
+          },
+          "currency": {
+            "type": "string",
+            "example": "₮"
+          },
+          "schedule": {
+            "type": "object",
+            "properties": {
+              "start": {
+                "type": "string",
+                "example": "09:00"
+              },
+              "end": {
+                "type": "string",
+                "example": "19:00"
+              },
+              "lunch_start": {
+                "type": "string",
+                "example": "13:00"
+              },
+              "lunch_end": {
+                "type": "string",
+                "example": "14:00"
+              },
+              "lunch_paid": {
+                "type": "boolean",
+                "example": true
+              },
+              "paid_minutes_per_day": {
+                "type": "integer",
+                "example": 600
+              },
+              "paid_hours_per_day": {
+                "type": "number",
+                "example": 10.0
+              },
+              "night_start": {
+                "type": "string",
+                "example": "19:00"
+              },
+              "night_end": {
+                "type": "string",
+                "example": "03:00"
+              },
+              "night_minutes": {
+                "type": "integer",
+                "example": 480
+              },
+              "night_hours": {
+                "type": "number",
+                "example": 8.0
+              }
+            }
+          },
+          "worked_minutes_today": {
+            "type": "integer",
+            "example": 341
+          },
+          "worked_hours_today": {
+            "type": "number",
+            "example": 5.68
+          },
+          "earned_today": {
+            "type": "number",
+            "example": 94722
+          },
+          "working_now": {
+            "type": "boolean"
+          },
+          "hourly_rate": {
+            "type": "number",
+            "example": 15000,
+            "description": "Өдрийн цагийн тариф = өдрийн цалин ÷ 10ц (үдийн завсарлага орсон)"
+          },
+          "daily_rate": {
+            "type": "number",
+            "example": 150000
+          },
+          "month_total": {
+            "type": "number",
+            "example": 601944
+          },
+          "base_pay": {
+            "type": "number"
+          },
+          "extra_pay": {
+            "type": "number"
+          },
+          "leave_pay": {
+            "type": "number"
+          },
+          "night_pay": {
+            "type": "number"
+          },
+          "penalty": {
+            "type": "number"
+          },
+          "absent_days": {
+            "type": "integer"
+          },
+          "today_leave": {
+            "type": "object",
+            "nullable": true,
+            "description": "Зөвхөн БАТЛАГДСАН чөлөө"
+          },
+          "today_pending_leave": {
+            "type": "object",
+            "nullable": true,
+            "description": "Хүлээгдэж буй хүсэлт (тасалдлыг нөхөхгүй)"
+          }
+        }
+      },
+      "Notification": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "employee_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "leave_request",
+              "leave_approved",
+              "leave_rejected",
+              "leave_cancel",
+              "missed_start",
+              "missed_end",
+              "absent",
+              "left_without_notice",
+              "shift_unclosed",
+              "leave_pending"
+            ]
+          },
+          "title": {
+            "type": "string",
+            "example": "ЧӨЛӨӨНИЙ ХҮСЭЛТ"
+          },
+          "body": {
+            "type": "string"
+          },
+          "dedupe_key": {
+            "type": "string",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "read_at": {
+            "type": "string",
+            "nullable": true
+          },
+          "unread": {
+            "type": "integer",
+            "enum": [
+              0,
+              1
+            ]
+          }
+        }
+      },
+      "DayStatus": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "enum": [
+              "leave",
+              "absent",
+              "normal",
+              "working",
+              "off"
+            ]
+          },
+          "label": {
+            "type": "string",
+            "enum": [
+              "Чөлөө",
+              "Ирээгүй",
+              "Хэвийн",
+              "Ажиллаж байна",
+              "Амралтын өдөр"
+            ]
+          },
+          "color": {
+            "type": "string",
+            "enum": [
+              "blue",
+              "red",
+              "green",
+              "teal",
+              "gray"
+            ]
+          },
+          "absent_minutes": {
+            "type": "integer",
+            "example": 600
+          },
+          "leave_minutes": {
+            "type": "integer",
+            "example": 0
+          },
+          "absent_hours": {
+            "type": "number",
+            "example": 10.0
+          },
+          "leave_hours": {
+            "type": "number",
+            "example": 3.0
+          }
+        }
+      },
+      "LeaveDecision": {
+        "type": "object",
+        "properties": {
+          "approve": {
+            "type": "boolean",
+            "example": true
+          },
+          "paid": {
+            "type": "boolean",
+            "example": false
+          },
+          "message": {
+            "type": "string",
+            "example": "EMP007 Эрдэнэбат Цэрэн — чөлөө батлагдлаа (цалингүй)."
+          }
+        }
+      },
+      "BoardRow": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Employee"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "status_code": {
+                "type": "string",
+                "enum": [
+                  "working",
+                  "working_late",
+                  "done",
+                  "done_late",
+                  "done_early",
+                  "done_both",
+                  "absent",
+                  "pending",
+                  "day_off"
+                ]
+              },
+              "status_label": {
+                "type": "string",
+                "example": "Хоцорсон (+26 мин)"
+              },
+              "color": {
+                "type": "string",
+                "enum": [
+                  "green",
+                  "red",
+                  "amber",
+                  "gray",
+                  "darkred"
+                ]
+              },
+              "clock_in_hm": {
+                "type": "string"
+              },
+              "clock_out_hm": {
+                "type": "string"
+              },
+              "late_minutes": {
+                "type": "integer"
+              },
+              "early_minutes": {
+                "type": "integer"
+              },
+              "deduct_minutes": {
+                "type": "integer"
+              },
+              "on_site": {
+                "type": "boolean"
+              },
+              "is_late": {
+                "type": "boolean"
+              },
+              "is_early_leave": {
+                "type": "boolean"
+              },
+              "day_status": {
+                "type": "string",
+                "enum": [
+                  "leave",
+                  "absent",
+                  "normal",
+                  "working",
+                  "off"
+                ]
+              },
+              "day_status_label": {
+                "type": "string",
+                "example": "Хэвийн"
+              },
+              "day_status_color": {
+                "type": "string",
+                "enum": [
+                  "blue",
+                  "red",
+                  "green",
+                  "teal",
+                  "gray"
+                ]
+              },
+              "absent_minutes": {
+                "type": "integer",
+                "example": 0
+              },
+              "leave_minutes": {
+                "type": "integer",
+                "example": 0
+              },
+              "on_leave": {
+                "type": "boolean"
+              },
+              "pending_leave": {
+                "type": "boolean",
+                "description": "Хүлээгдэж буй хүсэлт байгаа эсэх (тасалдлыг НӨХӨХГҮЙ)"
+              }
+            }
+          }
+        ]
+      }
+    }
+  },
+  "paths": {
+    "/api/health": {
+      "get": {
+        "tags": [
+          "Нээлттэй"
+        ],
+        "summary": "Системийн төлөв",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Сервер ажиллаж байна"
+          }
+        }
+      }
+    },
+    "/api/meta": {
+      "get": {
+        "tags": [
+          "Нээлттэй"
+        ],
+        "summary": "Ажлын хуваарь, гео хаалт, байгууллагын тохиргоо",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Тохиргооны хураангуй",
+            "content": {
+              "application/json": {
+                "example": {
+                  "company_name": "Жишээ ХХК",
+                  "timezone": "Asia/Ulaanbaatar",
+                  "schedule": {
+                    "start": "09:00",
+                    "end": "19:00",
+                    "grace_minutes": 10,
+                    "lunch_start": "13:00",
+                    "lunch_end": "14:00",
+                    "lunch_paid": true,
+                    "paid_minutes_per_day": 600,
+                    "paid_hours_per_day": 10.0,
+                    "night_start": "19:00",
+                    "night_end": "03:00",
+                    "night_minutes": 480,
+                    "night_hours": 8.0
+                  },
+                  "workdays": [
+                    1,
+                    2,
+                    3,
+                    4,
+                    5
+                  ],
+                  "workdays_label": "Даваа, Мягмар, Лхагва, Пүрэв, Баасан",
+                  "geofence": {
+                    "enabled": true,
+                    "name": "Төв оффис",
+                    "radius_m": 300
+                  },
+                  "demo_mode": true,
+                  "status_labels": {
+                    "not_checked_in": "Бүртгүүлээгүй",
+                    "working": "Ажиллаж байна",
+                    "done": "Ажил дууссан"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/employee-login": {
+      "post": {
+        "tags": [
+          "Нээлттэй"
+        ],
+        "summary": "Ажилтны нэвтрэлт (ажилтны код + ПИН)",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "code": {
+                    "type": "string",
+                    "example": "EMP001"
+                  },
+                  "pin": {
+                    "type": "string",
+                    "example": "1234"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Сесс үүслээ (att_session cookie + token)"
+          },
+          "401": {
+            "description": "Ажилтны код эсвэл ПИН буруу"
+          }
+        }
+      }
+    },
+    "/api/auth/admin-login": {
+      "post": {
+        "tags": [
+          "Нээлттэй"
+        ],
+        "summary": "Удирдлагын нэвтрэлт",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "username": {
+                    "type": "string",
+                    "example": "admin"
+                  },
+                  "password": {
+                    "type": "string",
+                    "example": "admin123"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Сесс үүслээ"
+          },
+          "401": {
+            "description": "Нэр эсвэл нууц үг буруу"
+          }
+        }
+      }
+    },
+    "/api/auth/logout": {
+      "post": {
+        "tags": [
+          "Нээлттэй"
+        ],
+        "summary": "Системээс гарах",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Амжилттай"
+          }
+        }
+      }
+    },
+    "/api/auth/me": {
+      "get": {
+        "tags": [
+          "Ажилтан",
+          "Удирдлага"
+        ],
+        "summary": "Одоогийн хэрэглэгчийн мэдээлэл",
+        "responses": {
+          "200": {
+            "description": "Хэрэглэгч"
+          },
+          "401": {
+            "description": "Нэвтрээгүй"
+          }
+        }
+      }
+    },
+    "/api/employee/today": {
+      "get": {
+        "tags": [
+          "Ажилтан"
+        ],
+        "summary": "Өнөөдрийн төлөв — ирсэн/явсан цаг, ажилласан хугацаа, хоцролт",
+        "parameters": [
+          {
+            "name": "date",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Ажилтны өдрийн самбар",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status_code": "working",
+                  "status_label": "Ажиллаж байна",
+                  "schedule": {
+                    "start": "09:00",
+                    "end": "19:00",
+                    "grace_minutes": 10,
+                    "lunch_start": "13:00",
+                    "lunch_end": "14:00",
+                    "lunch_paid": true,
+                    "paid_minutes_per_day": 600,
+                    "paid_hours_per_day": 10.0,
+                    "night_start": "19:00",
+                    "night_end": "03:00",
+                    "night_minutes": 480,
+                    "night_hours": 8.0
+                  },
+                  "record": {
+                    "clock_in_hm": "09:12",
+                    "clock_out_hm": "—",
+                    "late_minutes": 12,
+                    "worked_hm": "0ц 00м",
+                    "payable_hm": "0ц 00м",
+                    "deduct_minutes": 12
+                  },
+                  "vision": "Ажилтан: Батбаяр Дорж (EMP001)…"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Нэвтрэх шаардлагатай"
+          }
+        }
+      }
+    },
+    "/api/employee/clock-in": {
+      "post": {
+        "tags": [
+          "Ажилтан"
+        ],
+        "summary": "Ажилд орох бүртгэл (Ирсэн цаг) — гео хаалт шалгана",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "latitude": {
+                    "type": "number",
+                    "example": 47.9184
+                  },
+                  "longitude": {
+                    "type": "number",
+                    "example": 106.9177
+                  },
+                  "accuracy": {
+                    "type": "number",
+                    "description": "GPS нарийвчлал (м)"
+                  },
+                  "note": {
+                    "type": "string"
+                  },
+                  "demo_mode": {
+                    "type": "boolean",
+                    "description": "GPS байхгүй үед туршилтын горим (зөвхөн demo_mode=1 тохиргоотой үед)"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Бүртгэл амжилттай"
+          },
+          "422": {
+            "description": "Гео хаалтад хаагдлаа: «Та ажлын байрандаа байхгүй байна. Бүртгэл амжилтгүй.»",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "ok": false,
+                  "error": "Та ажлын байрандаа байхгүй байна. Бүртгэл амжилтгүй."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/employee/clock-out": {
+      "post": {
+        "tags": [
+          "Ажилтан"
+        ],
+        "summary": "Ажлаас буух бүртгэл (Явсан цаг) — эрт явалтыг тооцно",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "latitude": {
+                    "type": "number"
+                  },
+                  "longitude": {
+                    "type": "number"
+                  },
+                  "accuracy": {
+                    "type": "number"
+                  },
+                  "note": {
+                    "type": "string"
+                  },
+                  "demo_mode": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Бүртгэл амжилттай"
+          },
+          "422": {
+            "description": "Гео хаалтад хаагдлаа: «Та ажлын байрандаа байхгүй байна. Бүртгэл амжилтгүй.»",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "ok": false,
+                  "error": "Та ажлын байрандаа байхгүй байна. Бүртгэл амжилтгүй."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/employee/history": {
+      "get": {
+        "tags": [
+          "Ажилтан"
+        ],
+        "summary": "Сарын бүртгэлийн түүх ба нэгдсэн дүн",
+        "parameters": [
+          {
+            "name": "month",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "2026-09"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Бүртгэлүүд, нийт ажилласан цаг, хоцролт, хасагдсан минут"
+          }
+        }
+      }
+    },
+    "/api/geo/check": {
+      "get": {
+        "tags": [
+          "Ажилтан",
+          "Удирдлага"
+        ],
+        "summary": "Байршлыг ажлын байрны хүрээтэй харьцуулах",
+        "parameters": [
+          {
+            "name": "lat",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "number"
+            }
+          },
+          {
+            "name": "lng",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ok=true → хүрээнд; ok=false → «Та ажлын байрандаа байхгүй байна…»",
+            "content": {
+              "application/json": {
+                "example": {
+                  "ok": true,
+                  "enabled": true,
+                  "distance_m": 42.7,
+                  "radius_m": 300.0,
+                  "message": ""
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/board": {
+      "get": {
+        "tags": [
+          "Удирдлага",
+          "AI Agent"
+        ],
+        "summary": "Ирцийн шууд самбар — хэн ажиллаж байна, хэн хоцорсон, хэн ирээгүй",
+        "parameters": [
+          {
+            "name": "date",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Самбар",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "date": {
+                      "type": "string"
+                    },
+                    "weekday_mn": {
+                      "type": "string"
+                    },
+                    "is_workday": {
+                      "type": "boolean"
+                    },
+                    "is_today": {
+                      "type": "boolean"
+                    },
+                    "demo_data": {
+                      "type": "boolean"
+                    },
+                    "last_workday": {
+                      "type": "string"
+                    },
+                    "server_time": {
+                      "type": "string"
+                    },
+                    "schedule": {
+                      "type": "object"
+                    },
+                    "summary": {
+                      "type": "object",
+                      "properties": {
+                        "total": {
+                          "type": "integer"
+                        },
+                        "working": {
+                          "type": "integer"
+                        },
+                        "late": {
+                          "type": "integer"
+                        },
+                        "absent": {
+                          "type": "integer"
+                        },
+                        "early": {
+                          "type": "integer"
+                        },
+                        "done": {
+                          "type": "integer"
+                        }
+                      }
+                    },
+                    "employees": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/BoardRow"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/daily": {
+      "get": {
+        "tags": [
+          "Удирдлага"
+        ],
+        "summary": "Тухайн өдрийн дэлгэрэнгүй бүртгэл + ирээгүй ажилтнууд",
+        "parameters": [
+          {
+            "name": "date",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Амжилттай"
+          }
+        }
+      }
+    },
+    "/api/admin/monthly": {
+      "get": {
+        "tags": [
+          "Удирдлага",
+          "AI Agent"
+        ],
+        "summary": "Сарын цалингийн тайлан — Ажилтны нэр, Нийт ажилласан цаг, Нийт хоцорсон тоо, Хасагдсан нийт минут",
+        "parameters": [
+          {
+            "name": "month",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "2026-09"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Тайлан",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "month_label": {
+                      "type": "string"
+                    },
+                    "period": {
+                      "type": "string"
+                    },
+                    "workdays_in_month": {
+                      "type": "integer"
+                    },
+                    "rows": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "code": {
+                            "type": "string"
+                          },
+                          "full_name": {
+                            "type": "string",
+                            "description": "Ажилтны нэр"
+                          },
+                          "department": {
+                            "type": "string"
+                          },
+                          "worked_hours": {
+                            "type": "number",
+                            "description": "Нийт ажилласан цаг (тоо)"
+                          },
+                          "worked_hm": {
+                            "type": "string",
+                            "description": "Нийт ажилласан цаг (ц:мм)",
+                            "example": "168:58"
+                          },
+                          "late_days": {
+                            "type": "integer",
+                            "description": "Нийт хоцорсон тоо"
+                          },
+                          "late_minutes": {
+                            "type": "integer",
+                            "description": "Нийт хоцорсон минут"
+                          },
+                          "early_days": {
+                            "type": "integer",
+                            "description": "Нийт эрт явсан тоо"
+                          },
+                          "early_minutes": {
+                            "type": "integer"
+                          },
+                          "deduct_minutes": {
+                            "type": "integer",
+                            "description": "Хасагдсан нийт минут"
+                          },
+                          "payable_hm": {
+                            "type": "string",
+                            "description": "Төлбөртэй цаг",
+                            "example": "155:50"
+                          },
+                          "absent_days": {
+                            "type": "integer"
+                          }
+                        }
+                      }
+                    },
+                    "totals": {
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/matrix": {
+      "get": {
+        "tags": [
+          "Удирдлага"
+        ],
+        "summary": "Сар бүрийн өдөр тутмын ирцийн матриц (heatmap)",
+        "parameters": [
+          {
+            "name": "month",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "2026-09"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Амжилттай"
+          }
+        }
+      }
+    },
+    "/api/admin/employees": {
+      "get": {
+        "tags": [
+          "Удирдлага"
+        ],
+        "summary": "Ажилтны жагсаалт + тохиргоо + ажилтан бүрийн гео хаалтын горим (v4.3)",
+        "responses": {
+          "200": {
+            "description": "Амжилттай"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Удирдлага"
+        ],
+        "summary": "Шинэ ажилтан бүртгэх",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "code": {
+                    "type": "string"
+                  },
+                  "full_name": {
+                    "type": "string"
+                  },
+                  "department": {
+                    "type": "string"
+                  },
+                  "position": {
+                    "type": "string"
+                  },
+                  "pin": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Бүртгэгдлээ"
+          },
+          "409": {
+            "description": "Энэ кодтой ажилтан байна"
+          }
+        }
+      }
+    },
+    "/api/admin/employees/{eid}": {
+      "put": {
+        "tags": [
+          "Удирдлага"
+        ],
+        "summary": "Ажилтны мэдээлэл засах (нэр, албан тушаал, өдрийн цалин, талбай, рампа…)",
+        "parameters": [
+          {
+            "name": "eid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "full_name": {
+                    "type": "string"
+                  },
+                  "department": {
+                    "type": "string"
+                  },
+                  "position": {
+                    "type": "string"
+                  },
+                  "pin": {
+                    "type": "string"
+                  },
+                  "active": {
+                    "type": "integer",
+                    "enum": [
+                      0,
+                      1
+                    ]
+                  },
+                  "geofence_mode": {
+                    "type": "string",
+                    "enum": [
+                      "site",
+                      "custom",
+                      "off"
+                    ],
+                    "description": "v4.3 — ажилтны гео хаалтын горим"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Амжилттай"
+          }
+        }
+      }
+    },
+    "/api/admin/employees/{eid}/geofence": {
+      "put": {
+        "tags": [
+          "Ажлын байр"
+        ],
+        "summary": "Ажилтан бүрийн гео хаалтыг тохируулах (v4.3) — талбайгаа дагах | өөрийн байршил | идэвхгүй",
+        "parameters": [
+          {
+            "name": "eid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "mode": {
+                    "type": "string",
+                    "enum": [
+                      "site",
+                      "custom",
+                      "off"
+                    ],
+                    "example": "custom",
+                    "description": "site — оноосон талбай/үндсэн; custom — өөрийн lat/lng + радиус; off — хаалт хүчингүй (жолооч, хээрийн ажилтан)"
+                  },
+                  "lat": {
+                    "type": "number",
+                    "example": 47.9184
+                  },
+                  "lng": {
+                    "type": "number",
+                    "example": 106.9177
+                  },
+                  "radius_m": {
+                    "type": "number",
+                    "example": 500,
+                    "description": "20–20 000 м (анхдагч 300 м)"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Хадгалагдлаа",
+            "content": {
+              "application/json": {
+                "example": {
+                  "ok": true,
+                  "mode": "custom",
+                  "employee": {
+                    "id": 11,
+                    "code": "EMP011",
+                    "geofence_mode": "custom",
+                    "geo_lat": 47.9184,
+                    "geo_lng": 106.9177,
+                    "geo_radius_m": 500
+                  },
+                  "geo": {
+                    "source": "custom",
+                    "mode": "custom",
+                    "radius_m": 500,
+                    "enabled": true
+                  },
+                  "message": "Дөлгөөн Алтанхуяг: өөрийн байршил 500 м радиустай гео хаалт тохируулагдлаа."
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Горим/координат/радиус буруу"
+          },
+          "404": {
+            "description": "Ажилтан олдсонгүй"
+          }
+        }
+      }
+    },
+    "/api/admin/records": {
+      "post": {
+        "tags": [
+          "Удирдлага"
+        ],
+        "summary": "Бүртгэлийг гараар засах/нэмэх (хоцролт, эрт явалт дахин тооцоологдоно)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "employee_id": {
+                    "type": "integer"
+                  },
+                  "date": {
+                    "type": "string",
+                    "format": "date"
+                  },
+                  "clock_in": {
+                    "type": "string",
+                    "example": "09:05"
+                  },
+                  "clock_out": {
+                    "type": "string",
+                    "example": "17:50"
+                  },
+                  "note": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Амжилттай"
+          }
+        }
+      }
+    },
+    "/api/admin/settings": {
+      "get": {
+        "tags": [
+          "Удирдлага"
+        ],
+        "summary": "Тохиргоо (ажлын цаг, гео хаалт, үдийн завсарлага, админ)",
+        "responses": {
+          "200": {
+            "description": "Амжилттай"
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Удирдлага"
+        ],
+        "summary": "Тохиргоо хадгалах — хуваарьт нөлөөлөх утга өөрчлөгдвөл бүх бүртгэл дахин тооцоологдоно",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "company_name": {
+                    "type": "string"
+                  },
+                  "timezone": {
+                    "type": "string",
+                    "example": "Asia/Ulaanbaatar"
+                  },
+                  "schedule_start": {
+                    "type": "string",
+                    "example": "09:00"
+                  },
+                  "schedule_end": {
+                    "type": "string",
+                    "example": "19:00"
+                  },
+                  "lunch_paid": {
+                    "type": "string",
+                    "example": "1",
+                    "description": "Үдийн завсарлага цалинтай эсэх (1/0)"
+                  },
+                  "grace_minutes": {
+                    "type": "string",
+                    "description": "Хөнгөлөх хугацаа (мин)"
+                  },
+                  "lunch_deduct_minutes": {
+                    "type": "string",
+                    "description": "Үдийн завсарлага (мин)"
+                  },
+                  "workdays": {
+                    "type": "string",
+                    "example": "1,2,3,4,5"
+                  },
+                  "geofence_enabled": {
+                    "type": "string",
+                    "enum": [
+                      "0",
+                      "1"
+                    ]
+                  },
+                  "geofence_name": {
+                    "type": "string"
+                  },
+                  "geofence_lat": {
+                    "type": "string"
+                  },
+                  "geofence_lng": {
+                    "type": "string"
+                  },
+                  "geofence_radius_m": {
+                    "type": "string"
+                  },
+                  "demo_mode": {
+                    "type": "string",
+                    "enum": [
+                      "0",
+                      "1"
+                    ]
+                  },
+                  "admin_user": {
+                    "type": "string"
+                  },
+                  "admin_password": {
+                    "type": "string"
+                  },
+                  "google_maps_api_key": {
+                    "type": "string",
+                    "example": "AIza…",
+                    "description": "Google Maps JS API түлхүүр (v4.2 — байршлыг зурагнаас сонгох)"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Амжилттай"
+          }
+        }
+      }
+    },
+    "/api/admin/recalc": {
+      "post": {
+        "tags": [
+          "Удирдлага"
+        ],
+        "summary": "Бүх бүртгэлийг одоогийн ажлын хуваарийн дагуу дахин тооцоолох",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "month": {
+                    "type": "string",
+                    "nullable": true
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Амжилттай"
+          }
+        }
+      }
+    },
+    "/api/admin/geofence-check": {
+      "get": {
+        "tags": [
+          "Удирдлага"
+        ],
+        "summary": "Гео хаалтын шалгалт (админ)",
+        "parameters": [
+          {
+            "name": "lat",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "number"
+            }
+          },
+          {
+            "name": "lng",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Амжилттай"
+          }
+        }
+      }
+    },
+    "/api/admin/geofence-log": {
+      "get": {
+        "tags": [
+          "Удирдлага"
+        ],
+        "summary": "Гео хаалтаас болж амжилтгүй болсон оролдлогууд",
+        "responses": {
+          "200": {
+            "description": "Зөрчлийн жагсаалт",
+            "content": {
+              "application/json": {
+                "example": {
+                  "violations": [
+                    {
+                      "ts": "2026-10-04 19:13:23",
+                      "actor": "employee:1",
+                      "action": "clock_in_blocked",
+                      "detail": "Та ажлын байрандаа байхгүй байна. Бүртгэл амжилтгүй."
+                    }
+                  ],
+                  "message": "Та ажлын байрандаа байхгүй байна. Бүртгэл амжилтгүй."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/payroll": {
+      "get": {
+        "tags": [
+          "Цалин"
+        ],
+        "summary": "Сарын цалингийн тооцоо (ажилтан бүрээр)",
+        "description": "Өдрийн цалин × хөдөлмөрийн өдөр (шөнийн ээлж: хамгаалалт 50%, ажилчин 100%) + нэмэлт цаг + цалинтай чөлөө − 3 хоног дараалан тасарсан бол 10% торгууль.",
+        "parameters": [
+          {
+            "name": "month",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "example": "2026-09"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Амжилттай"
+          }
+        }
+      }
+    },
+    "/api/admin/periods": {
+      "get": {
+        "tags": [
+          "Хоёр төлбөр"
+        ],
+        "summary": "Үеүүдийн жагсаалт (10-ны цалингийн хугацаанууд) + авансын дүрэм",
+        "description": "Үе = «YYYY-MM» — тухайн сарын 10-нд олгогдох үндсэн цалин. Хугацаа: өмнөх сарын 11 → тухайн сарын 10. Авансын цонх: 11 → 24.",
+        "parameters": [
+          {
+            "name": "n",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "example": 6
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Амжилттай"
+          }
+        }
+      }
+    },
+    "/api/admin/pay-cycle": {
+      "get": {
+        "tags": [
+          "Хоёр төлбөр"
+        ],
+        "summary": "Хоёр төлбөрийн нэгдсэн хүснэгт (25-ны аванс + 10-ны үндсэн цалин)",
+        "description": "Ажилтан бүрээр: 11–24 цонхны бүтэн өдөр, авансын эрх ба төлөв, авансын дүн, 10-нд олгох үлдэгдэл (аванс хасагдсан).",
+        "parameters": [
+          {
+            "name": "period",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "example": "2026-10"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Амжилттай"
+          }
+        }
+      }
+    },
+    "/api/admin/period-payroll": {
+      "get": {
+        "tags": [
+          "Хоёр төлбөр"
+        ],
+        "summary": "Үеийн үндсэн цалингийн тооцоо (11 → 10)",
+        "description": "Өдрийн цалин × бүтэн өдөр + нэмэлт цаг + цалинтай чөлөө − 10% торгууль − 25-нд олгосон аванс = 10-нд олгох дүн.",
+        "parameters": [
+          {
+            "name": "period",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "example": "2026-10"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Амжилттай"
+          }
+        }
+      }
+    },
+    "/api/admin/advances": {
+      "get": {
+        "tags": [
+          "Хоёр төлбөр"
+        ],
+        "summary": "Авансын жагсаалт: хэн эрхтэй, хэн авсан, хэдэн төгрөг",
+        "parameters": [
+          {
+            "name": "period",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "example": "2026-10"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Амжилттай"
+          }
+        }
+      }
+    },
+    "/api/admin/advances/{eid}": {
+      "get": {
+        "tags": [
+          "Хоёр төлбөр"
+        ],
+        "summary": "Нэг ажилтны авансын мэдээлэл",
+        "parameters": [
+          {
+            "name": "eid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "period",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "example": "2026-10"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Амжилттай"
+          }
+        }
+      }
+    },
+    "/api/admin/advances/pay": {
+      "post": {
+        "tags": [
+          "Хоёр төлбөр"
+        ],
+        "summary": "25-ны авансыг «олгосон» гэж бүртгэх (10-ны цалингаас хасагдана)",
+        "description": "Ажилтанд «Аванс олгогдлоо» мэдэгдэл очно; админууд мэдэгдэл авна; аудит бичлэг үүснэ.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "employee_id": {
+                    "type": "integer",
+                    "example": 1
+                  },
+                  "code": {
+                    "type": "string",
+                    "example": "EMP001"
+                  },
+                  "period": {
+                    "type": "string",
+                    "example": "2026-10"
+                  },
+                  "amount": {
+                    "type": "number",
+                    "example": 1000000,
+                    "description": "Хоосон бол дүрмийн дүн (11–24-нд ажилласан цалингаас хэтрэхгүй)"
+                  },
+                  "paid_on": {
+                    "type": "string",
+                    "example": "2026-09-25"
+                  },
+                  "note": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Амжилттай"
+          }
+        }
+      }
+    },
+    "/api/admin/advances/cancel": {
+      "post": {
+        "tags": [
+          "Хоёр төлбөр"
+        ],
+        "summary": "Авансын бүртгэлийг цуцлах (10-ны цалин бүтнээр олгогдоно)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "employee_id": {
+                    "type": "integer"
+                  },
+                  "code": {
+                    "type": "string"
+                  },
+                  "period": {
+                    "type": "string",
+                    "example": "2026-10"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Амжилттай"
+          }
+        }
+      }
+    },
+    "/api/admin/advances/reset": {
+      "post": {
+        "tags": [
+          "Хоёр төлбөр"
+        ],
+        "summary": "Авансын бичлэгийг анхны төлөвт буцаах (эрхтэй → «хүлээгдэж байна», эрхгүй → устгах)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "employee_id": {
+                    "type": "integer"
+                  },
+                  "code": {
+                    "type": "string"
+                  },
+                  "period": {
+                    "type": "string",
+                    "example": "2026-10"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Амжилттай"
+          }
+        }
+      }
+    },
+    "/api/employee/my-pay-cycle": {
+      "get": {
+        "tags": [
+          "Ажилтан"
+        ],
+        "summary": "Өөрийн цалингийн хуанли: 25-ны аванс + 10-ны үндсэн цалин (ЗӨВХӨН өөрийн мэдээлэл)",
+        "description": "Ажилтанд: аванс авах эрхтэй эсэх (11–24-нд хэдэн бүтэн өдөр ажилласан), аванс олгогдсон эсэх ба дүн, 10-нд олгох үлдэгдэл.",
+        "parameters": [
+          {
+            "name": "period",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "example": "2026-10"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Амжилттай"
+          }
+        }
+      }
+    },
+    "/api/admin/payroll-rules": {
+      "get": {
+        "tags": [
+          "Цалин"
+        ],
+        "summary": "Цалингийн дүрэм (шөнийн ээлж, хувь, торгууль, тасалдлын босго, мэдэгдэл)",
+        "responses": {
+          "200": {
+            "description": "Амжилттай"
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Цалин"
+        ],
+        "summary": "Цалингийн дүрэм хадгалах ба бүх бүртгэлийг дахин тооцоолох",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "night_start": {
+                    "type": "string",
+                    "example": "19:00"
+                  },
+                  "night_end": {
+                    "type": "string",
+                    "example": "03:00"
+                  },
+                  "guard_percent": {
+                    "type": "number",
+                    "example": 50
+                  },
+                  "worker_percent": {
+                    "type": "number",
+                    "example": 100
+                  },
+                  "absence_penalty_days": {
+                    "type": "integer",
+                    "example": 3
+                  },
+                  "absence_penalty_percent": {
+                    "type": "number",
+                    "example": 10
+                  },
+                  "show_pay_to_employee": {
+                    "type": "string",
+                    "enum": [
+                      "0",
+                      "1"
+                    ]
+                  },
+                  "absent_minutes_grace": {
+                    "type": "string",
+                    "example": "10",
+                    "description": "Зөвшөөрөлгүй тасалдал «ирээгүй» болох босго минут"
+                  },
+                  "leave_request_notify": {
+                    "type": "string",
+                    "enum": [
+                      "0",
+                      "1"
+                    ],
+                    "description": "Чөлөөний хүсэлтийг админд мэдэгдэх"
+                  },
+                  "notify_start": {
+                    "type": "string",
+                    "enum": [
+                      "0",
+                      "1"
+                    ]
+                  },
+                  "notify_end": {
+                    "type": "string",
+                    "enum": [
+                      "0",
+                      "1"
+                    ]
+                  },
+                  "notify_missed_minutes": {
+                    "type": "string",
+                    "example": "15"
+                  },
+                  "auto_absent": {
+                    "type": "string",
+                    "enum": [
+                      "0",
+                      "1"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Амжилттай"
+          }
+        }
+      }
+    },
+    "/api/admin/employees/{eid}/pay": {
+      "get": {
+        "tags": [
+          "Цалин"
+        ],
+        "summary": "Нэг ажилтны сарын цалингийн дэлгэрэнгүй",
+        "parameters": [
+          {
+            "name": "eid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "month",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "example": "2026-09"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Амжилттай"
+          }
+        }
+      }
+    },
+    "/api/admin/employees/{eid}/days": {
+      "get": {
+        "tags": [
+          "Цалин"
+        ],
+        "summary": "Нэг ажилтны сарын өдрийн бүртгэл (цалин бүрээр)",
+        "parameters": [
+          {
+            "name": "eid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "month",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Амжилттай"
+          }
+        }
+      }
+    },
+    "/api/admin/employees/{eid}/geo": {
+      "get": {
+        "tags": [
+          "Ажлын байр"
+        ],
+        "summary": "Ажилтанд үйлчлэх гео хүрээ (талбай эсвэл үндсэн)",
+        "parameters": [
+          {
+            "name": "eid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Амжилттай"
+          }
+        }
+      }
+    },
+    "/api/admin/employees/{eid}/extra-hours": {
+      "post": {
+        "tags": [
+          "Цалин"
+        ],
+        "summary": "Ажилтанд нэмэлт ажлын цаг гараар нэмэх (0 болгож хасна)",
+        "parameters": [
+          {
+            "name": "eid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "date": {
+                    "type": "string",
+                    "format": "date",
+                    "example": "2026-10-02"
+                  },
+                  "hours": {
+                    "type": "number",
+                    "example": 3
+                  },
+                  "note": {
+                    "type": "string",
+                    "example": "Шөнийн цемент ачилт"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Амжилттай"
+          }
+        }
+      }
+    },
+    "/api/admin/geo/parse": {
+      "post": {
+        "tags": [
+          "Ажлын байр"
+        ],
+        "summary": "Google Maps холбоос/координатыг (lat, lng) болгон задлах (v4.2)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "text": {
+                    "type": "string",
+                    "example": "https://www.google.com/maps/@47.9184,106.9177,16z"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Координат",
+            "content": {
+              "application/json": {
+                "example": {
+                  "ok": true,
+                  "lat": 47.9184,
+                  "lng": 106.9177,
+                  "zoom": 16,
+                  "source": "google_link",
+                  "message": "Координат олдлоо: 47.91840, 106.91770"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Координат олдсонгүй (эсвэл богино холбоос)"
+          }
+        }
+      }
+    },
+    "/api/admin/sites": {
+      "get": {
+        "tags": [
+          "Ажлын байр"
+        ],
+        "summary": "Ажлын байруудын жагсаалт + ажилтны тоо + Google Maps тохиргоо",
+        "responses": {
+          "200": {
+            "description": "Жагсаалт",
+            "content": {
+              "application/json": {
+                "example": {
+                  "sites": [
+                    {
+                      "id": 1,
+                      "name": "Төв оффис",
+                      "lat": 47.9184,
+                      "lng": 106.9177,
+                      "radius_m": 300,
+                      "active": 1,
+                      "employee_count": 5
+                    }
+                  ],
+                  "geofence_default": {
+                    "enabled": true,
+                    "name": "Төв оффис",
+                    "lat": 47.9184,
+                    "lng": 106.9177,
+                    "radius_m": 300
+                  },
+                  "maps": {
+                    "provider": "google",
+                    "api_key": "AIza…",
+                    "has_key": true,
+                    "embed": "https://maps.google.com/maps?q={lat},{lng}&z={z}&output=embed"
+                  },
+                  "message": ""
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Ажлын байр"
+        ],
+        "summary": "Шинэ ажлын байр (талбай) нэмэх",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "example": "Зайсан — орон сууцны цогцолбор"
+                  },
+                  "address": {
+                    "type": "string"
+                  },
+                  "latitude": {
+                    "type": "number",
+                    "example": 47.8859
+                  },
+                  "longitude": {
+                    "type": "number",
+                    "example": 106.9207
+                  },
+                  "radius_m": {
+                    "type": "number",
+                    "example": 250
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Амжилттай"
+          }
+        }
+      }
+    },
+    "/api/admin/sites/{sid}": {
+      "put": {
+        "tags": [
+          "Ажлын байр"
+        ],
+        "summary": "Ажлын байр засах (нэр, координат, радиус)",
+        "parameters": [
+          {
+            "name": "sid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "latitude": {
+                    "type": "number"
+                  },
+                  "longitude": {
+                    "type": "number"
+                  },
+                  "radius_m": {
+                    "type": "number"
+                  },
+                  "active": {
+                    "type": "integer",
+                    "enum": [
+                      0,
+                      1
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Амжилттай"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Ажлын байр"
+        ],
+        "summary": "Ажлын байрыг идэвхгүй болгох",
+        "parameters": [
+          {
+            "name": "sid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Амжилттай"
+          }
+        }
+      }
+    },
+    "/api/admin/leaves": {
+      "get": {
+        "tags": [
+          "Чөлөө"
+        ],
+        "summary": "Чөлөөний бүртгэл + хүлээгдэж буй хүсэлтүүд",
+        "parameters": [
+          {
+            "name": "month",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "example": "2026-10"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Амжилттай"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Чөлөө"
+        ],
+        "summary": "Чөлөө олгох (админ) — бүтэн өдөр эсвэл цагаар, цалинтай/цалингүй",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "employee_id": {
+                    "type": "integer",
+                    "example": 5
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "чөлөө"
+                    ],
+                    "example": "чөлөө"
+                  },
+                  "start_date": {
+                    "type": "string",
+                    "format": "date"
+                  },
+                  "end_date": {
+                    "type": "string",
+                    "format": "date",
+                    "nullable": true
+                  },
+                  "all_day": {
+                    "type": "boolean",
+                    "example": false
+                  },
+                  "start_time": {
+                    "type": "string",
+                    "example": "14:00",
+                    "nullable": true
+                  },
+                  "end_time": {
+                    "type": "string",
+                    "example": "19:00",
+                    "nullable": true
+                  },
+                  "paid": {
+                    "type": "boolean",
+                    "example": false
+                  },
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "approved",
+                      "pending",
+                      "rejected"
+                    ],
+                    "example": "approved"
+                  },
+                  "note": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Амжилттай"
+          }
+        }
+      }
+    },
+    "/api/admin/leaves/{lid}": {
+      "delete": {
+        "tags": [
+          "Чөлөө"
+        ],
+        "summary": "Чөлөөний бүртгэл устгах",
+        "parameters": [
+          {
+            "name": "lid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Амжилттай"
+          }
+        }
+      }
+    },
+    "/api/admin/leaves/{eid}/summary": {
+      "get": {
+        "tags": [
+          "Чөлөө"
+        ],
+        "summary": "Ажилтны сарын чөлөөний хураангуй (нийт цаг, цалинтай цаг, статус тус бүрээр)",
+        "parameters": [
+          {
+            "name": "eid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "month",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Амжилттай"
+          }
+        }
+      }
+    },
+    "/api/admin/export/payroll.xlsx": {
+      "get": {
+        "tags": [
+          "Экспорт"
+        ],
+        "summary": "Цалингийн Excel (Цалин / Чөлөө / Ажлын байр гэсэн 3 хуудас)",
+        "parameters": [
+          {
+            "name": "month",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Амжилттай"
+          }
+        }
+      }
+    },
+    "/api/admin/export/payroll.csv": {
+      "get": {
+        "tags": [
+          "Экспорт"
+        ],
+        "summary": "Цалингийн CSV (UTF-8 BOM)",
+        "parameters": [
+          {
+            "name": "month",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Амжилттай"
+          }
+        }
+      }
+    },
+    "/api/employee/my-pay": {
+      "get": {
+        "tags": [
+          "Ажилтан"
+        ],
+        "summary": "Өөрийн сарын цалин — ЗӨВХӨН өөрийн бүртгэл (cross-visibility хориотой)",
+        "parameters": [
+          {
+            "name": "month",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Амжилттай"
+          }
+        }
+      }
+    },
+    "/api/employee/my-leaves": {
+      "get": {
+        "tags": [
+          "Ажилтан"
+        ],
+        "summary": "Өөрийн чөлөөний бүртгэл",
+        "parameters": [
+          {
+            "name": "month",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Амжилттай"
+          }
+        }
+      }
+    },
+    "/api/admin/audit": {
+      "get": {
+        "tags": [
+          "Удирдлага"
+        ],
+        "summary": "Аудитын бүртгэл (сүүлийн 120)",
+        "responses": {
+          "200": {
+            "description": "Амжилттай"
+          }
+        }
+      }
+    },
+    "/api/admin/backup.zip": {
+      "get": {
+        "tags": [
+          "Удирдлага"
+        ],
+        "summary": "Бүрэн нөөц хуулбар (ZIP): өгөгдлийн сан + бүх зураг",
+        "description": "Админ эрхээр татана. Render/VPS дээр shell-гүйгээр нөөц авах. Дотор: attendance.db (VACUUM INTO хуулбар), photos/**, BACKUP_INFO.txt.",
+        "responses": {
+          "200": {
+            "description": "Амжилттай"
+          }
+        }
+      }
+    },
+    "/api/admin/api-keys": {
+      "get": {
+        "tags": [
+          "Удирдлага"
+        ],
+        "summary": "API түлхүүрүүд",
+        "responses": {
+          "200": {
+            "description": "Амжилттай"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Удирдлага"
+        ],
+        "summary": "AI агентын API түлхүүр үүсгэх",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "example": "ChatGPT Agent"
+                  },
+                  "role": {
+                    "type": "string",
+                    "enum": [
+                      "agent",
+                      "admin"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Амжилттай"
+          }
+        }
+      }
+    },
+    "/api/admin/api-keys/{key}": {
+      "delete": {
+        "tags": [
+          "Удирдлага"
+        ],
+        "summary": "API түлхүүр идэвхгүй болгох",
+        "parameters": [
+          {
+            "name": "key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Амжилттай"
+          }
+        }
+      }
+    },
+    "/api/admin/demo/seed": {
+      "post": {
+        "tags": [
+          "Удирдлага"
+        ],
+        "summary": "Туршилтын (демо) өдрийн бүртгэл үүсгэх — самбарын бүх төлөв харагдана",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "force_workday": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Үүсгэгдлээ"
+          },
+          "409": {
+            "description": "Ажлын цаг эхлээгүй байна"
+          }
+        }
+      }
+    },
+    "/api/admin/demo/today": {
+      "delete": {
+        "tags": [
+          "Удирдлага"
+        ],
+        "summary": "Туршилтын бүртгэлийг устгах",
+        "responses": {
+          "200": {
+            "description": "Амжилттай"
+          }
+        }
+      }
+    },
+    "/api/agent/directory": {
+      "get": {
+        "tags": [
+          "AI Agent"
+        ],
+        "summary": "Ажилтны жагсаалт (агент)",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Амжилттай"
+          }
+        }
+      }
+    },
+    "/api/agent/status": {
+      "get": {
+        "tags": [
+          "AI Agent"
+        ],
+        "summary": "Ирцийн шууд самбар (агент)",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "date",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Самбар + vision текстэн тайлбар"
+          }
+        }
+      }
+    },
+    "/api/agent/vision": {
+      "get": {
+        "tags": [
+          "AI Agent"
+        ],
+        "summary": "Нэгдсэн текстэн төлөв — LLM-д шууд өгөхөд тохиромжтой",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "date",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Текст + бүтэцлэгдсэн өгөгдөл",
+            "content": {
+              "application/json": {
+                "example": {
+                  "text": "# Ирцийн төлөв — 2026-10-04 (Ням)\nАжлын хуваарь: 09:00–19:00 (10ц)\nОдоо байгаа ажилтнууд: 5 / Нийт: 12\nХоцорсон: 4 | Ирээгүй: 1 | Эрт явсан: 4"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/agent/employee-status": {
+      "get": {
+        "tags": [
+          "AI Agent"
+        ],
+        "summary": "Нэг ажилтны төлөв",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "employee_code",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "date",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Амжилттай"
+          }
+        }
+      }
+    },
+    "/api/agent/clock-in": {
+      "post": {
+        "tags": [
+          "AI Agent"
+        ],
+        "summary": "Ажилтны өмнөөс ажилд орох бүртгэл (гео хаалт шалгана)",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "employee_code": {
+                    "type": "string"
+                  },
+                  "latitude": {
+                    "type": "number"
+                  },
+                  "longitude": {
+                    "type": "number"
+                  },
+                  "accuracy": {
+                    "type": "number"
+                  },
+                  "note": {
+                    "type": "string"
+                  },
+                  "demo_mode": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Бүртгэл амжилттай"
+          },
+          "422": {
+            "description": "Гео хаалтад хаагдлаа: «Та ажлын байрандаа байхгүй байна. Бүртгэл амжилтгүй.»",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "ok": false,
+                  "error": "Та ажлын байрандаа байхгүй байна. Бүртгэл амжилтгүй."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/agent/clock-out": {
+      "post": {
+        "tags": [
+          "AI Agent"
+        ],
+        "summary": "Ажилтны өмнөөс ажлаас буух бүртгэл",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "employee_code": {
+                    "type": "string"
+                  },
+                  "latitude": {
+                    "type": "number"
+                  },
+                  "longitude": {
+                    "type": "number"
+                  },
+                  "note": {
+                    "type": "string"
+                  },
+                  "demo_mode": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Бүртгэл амжилттай"
+          },
+          "422": {
+            "description": "Гео хаалтад хаагдлаа: «Та ажлын байрандаа байхгүй байна. Бүртгэл амжилтгүй.»",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "ok": false,
+                  "error": "Та ажлын байрандаа байхгүй байна. Бүртгэл амжилтгүй."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/agent/geofence-check": {
+      "post": {
+        "tags": [
+          "AI Agent"
+        ],
+        "summary": "Байршлын шалгалт (ажилтныг зааж өгвөл түүний гео хаалтын горимоор, v4.3)",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "latitude": {
+                    "type": "number"
+                  },
+                  "longitude": {
+                    "type": "number"
+                  },
+                  "employee_id": {
+                    "type": "integer",
+                    "example": 11
+                  },
+                  "code": {
+                    "type": "string",
+                    "example": "EMP011"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Амжилттай"
+          }
+        }
+      }
+    },
+    "/api/agent/monthly-report": {
+      "get": {
+        "tags": [
+          "AI Agent"
+        ],
+        "summary": "Сарын цалингийн тайлан",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "month",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "2026-09"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Амжилттай"
+          }
+        }
+      }
+    },
+    "/api/agent/export/monthly.xlsx": {
+      "get": {
+        "tags": [
+          "AI Agent"
+        ],
+        "summary": "Excel (.xlsx) тайлан татах",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "month",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "2026-09"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Excel файл",
+            "content": {
+              "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {}
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/export/monthly.xlsx": {
+      "get": {
+        "tags": [
+          "Удирдлага"
+        ],
+        "summary": "Сарын Excel тайлан (Сарын тайлан + Өдрийн дэлгэрэнгүй гэсэн 2 хуудас)",
+        "parameters": [
+          {
+            "name": "month",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "2026-09"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Excel файл"
+          }
+        }
+      }
+    },
+    "/api/admin/export/monthly.csv": {
+      "get": {
+        "tags": [
+          "Удирдлага"
+        ],
+        "summary": "Сарын CSV тайлан",
+        "parameters": [
+          {
+            "name": "month",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "2026-09"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "CSV (Excel-д нийцэх BOM-той)"
+          }
+        }
+      }
+    },
+    "/api/admin/export/daily.csv": {
+      "get": {
+        "tags": [
+          "Удирдлага"
+        ],
+        "summary": "Өдрийн CSV тайлан",
+        "parameters": [
+          {
+            "name": "date",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "CSV файл"
+          }
+        }
+      }
+    },
+    "/api/employee/leave-request": {
+      "post": {
+        "tags": [
+          "Ажилтан"
+        ],
+        "summary": "Ажилтан аппаас чөлөө хүсэх (хэдэн цаг / нэг өдөр / хэдэн өдөр)",
+        "description": "Хүсэлт нь pending статустай үүсч админд мэдэгдэл («ХҮСЭЛТ») очно. Админ БАТАЛСНЫ дараа л тухайн цаг/өдөр «чөлөө» болж, тасалдал нөхөгдөнө.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "start_date": {
+                    "type": "string",
+                    "format": "date",
+                    "example": "2026-10-06"
+                  },
+                  "end_date": {
+                    "type": "string",
+                    "format": "date",
+                    "nullable": true,
+                    "example": "2026-10-07"
+                  },
+                  "all_day": {
+                    "type": "boolean",
+                    "example": true
+                  },
+                  "start_time": {
+                    "type": "string",
+                    "example": "13:00",
+                    "nullable": true
+                  },
+                  "end_time": {
+                    "type": "string",
+                    "example": "16:00",
+                    "nullable": true
+                  },
+                  "note": {
+                    "type": "string",
+                    "example": "Эмнэлэгт үзүүлэх"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "pending хүсэлт + админы мэдэгдэл"
+          },
+          "400": {
+            "description": "Давхардсан хүсэлт / аль хэдийн батлагдсан чөлөө / буруу огноо",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/employee/leave-requests/{lid}/cancel": {
+      "post": {
+        "tags": [
+          "Ажилтан"
+        ],
+        "summary": "Ажилтан өөрийн ХҮЛЭЭГДЭЖ БУЙ хүсэлтээ цуцлах",
+        "parameters": [
+          {
+            "name": "lid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "status=cancelled + админд мэдэгдэл"
+          },
+          "400": {
+            "description": "Зөвхөн хүлээгдэж буй хүсэлтийг цуцална",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/leave-requests": {
+      "get": {
+        "tags": [
+          "Чөлөө"
+        ],
+        "summary": "Чөлөөний хүсэлтүүд (анхдагч: зөвхөн хүлээгдэж буй)",
+        "parameters": [
+          {
+            "name": "month",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "example": "2026-10"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "example": "pending"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Амжилттай"
+          }
+        }
+      }
+    },
+    "/api/admin/leave-requests/{lid}/decide": {
+      "post": {
+        "tags": [
+          "Чөлөө"
+        ],
+        "summary": "Хүсэлтийг БАТАЛНА эсвэл ТАТГАЛЗНА (мэдэгдлээс шууд)",
+        "description": "Батлах үед тухайн өдөр/цаг «чөлөө» төлөвт шилжиж, тасалдал нөхөгдөнө; ажилтанд «Чөлөөний хүсэлт батлагдлаа/татгалзагдлаа» мэдэгдэл очно. Зөвхөн хүлээгдэж буй хүсэлтийг шийдэж болно (эс бөгөөс 400).",
+        "parameters": [
+          {
+            "name": "lid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "approve": {
+                    "type": "boolean",
+                    "example": true
+                  },
+                  "paid": {
+                    "type": "boolean",
+                    "example": false,
+                    "description": "Цалинтай эсэх (батлах үед шийднэ)"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "leave{status:'approved'|'rejected'}, message"
+          },
+          "400": {
+            "description": "Аль хэдийн шийдэгдсэн/цуцлагдсан хүсэлт",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/notifications/read": {
+      "post": {
+        "tags": [
+          "Удирдлага"
+        ],
+        "summary": "Админы мэдэгдлийг уншсан гэж тэмдэглэх",
+        "responses": {
+          "200": {
+            "description": "ok:true, marked, unread:0"
+          }
+        }
+      }
+    },
+    "/api/admin/notifications": {
+      "get": {
+        "tags": [
+          "Удирдлага"
+        ],
+        "summary": "Админы мэдэгдлүүд (хүсэлт, тасалдал, хаагдаагүй бүртгэл)",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "example": 50
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Амжилттай"
+          }
+        }
+      }
+    },
+    "/api/admin/notifications/tick": {
+      "post": {
+        "tags": [
+          "Удирдлага"
+        ],
+        "summary": "Цагийн сануулгыг гараар ажиллуулах (cron/preview)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "force": {
+                    "type": "boolean",
+                    "example": true
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Амжилттай"
+          }
+        }
+      }
+    },
+    "/api/admin/extra-hours": {
+      "post": {
+        "tags": [
+          "Цалин"
+        ],
+        "summary": "Ажилтанд нэмэлт ажлын цаг гараар нэмэх (фото шаардлагагүй)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "employee_id": {
+                    "type": "integer",
+                    "example": 5
+                  },
+                  "date": {
+                    "type": "string",
+                    "format": "date",
+                    "example": "2026-10-02"
+                  },
+                  "hours": {
+                    "type": "number",
+                    "example": 2.5
+                  },
+                  "note": {
+                    "type": "string",
+                    "example": "Шөнийн цемент ачилт"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Амжилттай"
+          }
+        }
+      }
+    },
+    "/api/admin/photos": {
+      "get": {
+        "tags": [
+          "Удирдлага"
+        ],
+        "summary": "Зурагт хяналт — сар/ажилтнаар (ирсэн, явсан, нэмэлт ажлын зураг)",
+        "parameters": [
+          {
+            "name": "month",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "example": "2026-10"
+            }
+          },
+          {
+            "name": "employee_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Амжилттай"
+          }
+        }
+      }
+    },
+    "/api/admin/segments": {
+      "get": {
+        "tags": [
+          "Удирдлага"
+        ],
+        "summary": "Ажлын хэсгүүд (нэмэлт ажил/шөнийн ээлж) + хаагдаагүй бүртгэлүүд",
+        "parameters": [
+          {
+            "name": "month",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "example": "2026-10"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "example": "closed"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Амжилттай"
+          }
+        }
+      }
+    },
+    "/api/admin/segments/{sid}/approve": {
+      "post": {
+        "tags": [
+          "Удирдлага"
+        ],
+        "summary": "Ажлын хэсгийг батлах/татгалзах (нэмэлт цаг, шөнийн ээлж)",
+        "parameters": [
+          {
+            "name": "sid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "approve": {
+                    "type": "boolean",
+                    "example": true
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Амжилттай"
+          }
+        }
+      }
+    },
+    "/api/employee/live": {
+      "get": {
+        "tags": [
+          "Ажилтан"
+        ],
+        "summary": "Өөрийн бодит цагийн цалин (30 сек тутам шинэчлэгдэнэ)",
+        "parameters": [
+          {
+            "name": "month",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "example": "2026-10"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Амжилттай"
+          }
+        }
+      }
+    },
+    "/api/employee/extra": {
+      "get": {
+        "tags": [
+          "Ажилтан"
+        ],
+        "summary": "Өөрийн нэмэлт ажил / шөнийн ээлжийн хэсгүүд (нээлттэй эсэх)",
+        "parameters": [
+          {
+            "name": "month",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "example": "2026-10"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Амжилттай"
+          }
+        }
+      }
+    },
+    "/api/employee/extra/start": {
+      "post": {
+        "tags": [
+          "Ажилтан"
+        ],
+        "summary": "Нэмэлт ажил / шөнийн ээлж ЭХЛЭХ — ЗУРАГ заавал",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "photo": {
+                    "type": "string",
+                    "description": "data:image/jpeg;base64,…"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "extra",
+                      "night"
+                    ],
+                    "example": "extra"
+                  },
+                  "note": {
+                    "type": "string"
+                  },
+                  "photo_source": {
+                    "type": "string",
+                    "enum": [
+                      "camera",
+                      "file"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "segment{start}, live, today"
+          },
+          "422": {
+            "description": "ФОТОГҮЙ / гео хаалт / буруу төлөв",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/employee/extra/stop": {
+      "post": {
+        "tags": [
+          "Ажилтан"
+        ],
+        "summary": "Нэмэлт ажил / шөнийн ээлж ДУУСГАХ — ЗУРАГ заавал",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "photo": {
+                    "type": "string"
+                  },
+                  "note": {
+                    "type": "string"
+                  },
+                  "photo_source": {
+                    "type": "string",
+                    "enum": [
+                      "camera",
+                      "file"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "segment{end, minutes}, live, today"
+          },
+          "422": {
+            "description": "ФОТОГҮЙ / нээлттэй хэсэг байхгүй",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/employee/notifications": {
+      "get": {
+        "tags": [
+          "Ажилтан"
+        ],
+        "summary": "Өөрийн мэдэгдлүүд (чөлөөний шийдвэр, сануулга)",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "example": 30
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Амжилттай"
+          }
+        }
+      }
+    },
+    "/api/employee/notifications/read": {
+      "post": {
+        "tags": [
+          "Ажилтан"
+        ],
+        "summary": "Өөрийн мэдэгдлийг уншсан гэж тэмдэглэх",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "ids": {
+                    "type": "array",
+                    "items": {
+                      "type": "integer"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Амжилттай"
+          }
+        }
+      }
+    },
+    "/api/photos": {
+      "get": {
+        "tags": [
+          "Нээлттэй"
+        ],
+        "summary": "Зураг үзүүлэх — админ бүгдийг, ажилтан ЗӨВХӨН өөрийнхийг (файлын нэр {код}_…)",
+        "parameters": [
+          {
+            "name": "path",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "2026-10/003_20261001_180201_out.jpg"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "image/jpeg"
+          },
+          "403": {
+            "description": "Зөвхөн өөрийн зургийг харах боломжтой"
+          },
+          "404": {
+            "description": "Зураг олдсонгүй"
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,19 @@
+services:
+  attendance:
+    build: .
+    container_name: attendance
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      TZ: Asia/Ulaanbaatar
+      HOST: 0.0.0.0
+      PORT: "8000"
+      ATTENDANCE_DB: /app/data/attendance.db
+    volumes:
+      - ./data:/app/data
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/api/health',timeout=4).status==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3

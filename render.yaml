@@ -1,0 +1,47 @@
+# ==========================================================================
+#  Render.com Blueprint — Цаг бүртгэл ба ирцийн систем
+#  render.com → New + → Blueprint → энэ repository-г сонгоно → Apply
+#
+#  ⚙️  ЭНЭ ФАЙЛ = ҮНЭГҮЙ (Free) ТУРШИЛТЫН ХУВИЛБАР
+#      • Free instance, диск БАЙХГҮЙ → сервер унтаж сэрэх бүрд өгөгдөл
+#        шинээр үүснэ (8 долоо хоногийн демо өгөгдөл автоматаар бэлдэнэ).
+#      • Бодит ашиглалтад: доорх `disk:` блокийг нээж, `plan: starter`
+#        болгоно (Render Starter ≈ $7/сар + диск 1 GB ≈ $0.25/сар).
+#        Дэлгэрэнгүй: deploy/DEPLOY_RENDER.md
+# ==========================================================================
+services:
+  - type: web
+    name: attendance-system
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    # бодит ашиглалт: starter (~$7/сар + диск)
+    plan: free
+    # Монголд хамгийн ойр (эсвэл frankfurt)
+    region: singapore
+    healthCheckPath: /api/health
+    # GitHub-д push хийхэд автоматаар deploy
+    autoDeploy: true
+    envVars:
+      - key: TZ
+        # бүх цаг/огноо Улаанбаатарын цагаар
+        value: Asia/Ulaanbaatar
+      - key: HOST
+        value: 0.0.0.0
+      - key: PYTHONUNBUFFERED
+        value: "1"
+      - key: ATTENDANCE_DB
+        value: /app/data/attendance.db
+      # Claude API түлхүүр (сонголтоор — апп өөрөө шаарддаггүй).
+      # Dashboard → Environment → Secret-ээр нэмнэ. Код/GitHub руу ХЭЗЭЭ Ч бичихгүй.
+      # - key: ANTHROPIC_API_KEY
+      #   sync: false
+
+#  ── Бодит ашиглалт (өгөгдөл хадгалагдах) ──────────────────────────────────
+#  Дээрх `plan: free`-г `plan: starter` болгож, доорх мөрүүдийг нээнэ.
+#  ⚠️  Дисктэй үйлчилгээг хэвтээ өргөтгөх (scale) БОЛОХГҮЙ — SQLite нэг
+#      instance-д зориулагдсан. Бүх өгөгдөл /app/data дотор байрлана.
+#
+#    disk:
+#      name: attendance-data
+#      mountPath: /app/data         # сан + зураг (data/photos) энд хадгалагдана
+#      sizeGB: 1                    # 1 GB ≈ 1–2 жилийн зураг (жижиг бригад)
