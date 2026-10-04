@@ -1034,6 +1034,8 @@ function loginView(){
         <button data-act="seg" data-seg="admin" class="${S.seg==='admin'?'active':''}">${ic('tool')} Удирдлага</button>
       </div>
       ${S.seg==='admin' ? adminLoginForm() : empLoginForm()}
+      ${(!isStandalone()) ? `<div style="text-align:center;margin-top:14px">
+        <button class="btn small" data-act="install">${ic('download')} 📲 Утсанд суулгах заавар</button></div>` : ''}
       <div class="footer-note" style="margin-top:18px">
         Техникийн дэмжлэг: <span class="mono">/api/health</span> · Хувилбар 4.6.0
       </div>
@@ -2943,6 +2945,7 @@ function render(){
       <div class="spacer"></div>
       <div class="clock-badge" id="liveClock"><div class="t">${nowStr()}</div><div class="d">${nowDateLabel()}</div></div>
       <div class="who"><b>${esc(nm)}</b><div>${S.me.role==='admin'?'Бүтэн эрх':'Ажилтан'}</div></div>
+      ${(window.__installReady || (isIOS() && !isStandalone())) ? `<button class="btn small ghost" style="color:#fff;border-color:#ffffff44" data-act="install">${ic('download')} Апп суулгах</button>` : ''}
       <button class="btn small ghost" style="color:#fff;border-color:#ffffff44" data-act="print">${ic('print')} Хэвлэх / PDF</button>
       <button class="btn small ghost" style="color:#fff;border-color:#ffffff44" data-act="notif">${ic('bell')} Мэдэгдэл<span id="notifBadge" style="display:none"></span></button>
       <button class="btn small ghost" style="color:#fff;border-color:#ffffff44" data-act="logout">Гарах</button>
@@ -2995,6 +2998,7 @@ function bind(){
     if (act==='geocheck') el.onclick = async ()=>{ if(!S.geoBusy){ S.geoBusy=true;
       await geoCheckUI(); S.geoBusy=false; } };
     // v4.6: GPS ажиллахгүй үед (компьютер, гадаадаас нэвтэрсэн) демо байршлаар үргэлжлүүлэх
+    if (act==='install') el.onclick = ()=>{ doInstall(); };
     if (act==='geodemo') el.onclick = ()=>{
       const g = (S.meta && S.meta.geofence) || {};
       S.geo = {latitude:g.lat, longitude:g.lng, accuracy:0, demo:true, manual:true};
@@ -3592,6 +3596,67 @@ window.__a2hs = ()=>{
   const box = document.getElementById('a2hsBox');
   if (box){ box.remove(); localStorage.setItem('a2hs_off','1'); }
 };
+
+/* --- Апп суулгах: Android/Chrome-ийн жинхэнэ prompt + зааварчилгааны цонх --- */
+let _installEvt = null;
+window.__installReady = false;
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();                       // Chrome-ийн автомат баннерыг өөрсдийн товчоор солино
+  _installEvt = e;
+  window.__installReady = true;
+  try { render(); } catch (err) {}          // толгойн «Апп суулгах» товчийг гаргана
+});
+window.addEventListener('appinstalled', () => {
+  _installEvt = null; window.__installReady = false;
+  try { toast('Апп утсанд суулгагдлаа 🎉 Дэлгэцэн дээрх ЦАГ icon-оос нээнэ үү.','ok','Бэлэн'); } catch (e) {}
+  try { render(); } catch (e) {}
+});
+
+/** «Апп суулгах» товч дарахад: боломжтой бол жинхэнэ prompt, эс бөгөөс заавар */
+async function doInstall(){
+  if (_installEvt){
+    try { _installEvt.prompt(); } catch (e) {}
+    let res = { outcome: 'dismissed' };
+    try { res = await _installEvt.userChoice; } catch (e) {}
+    _installEvt = null; window.__installReady = false;
+    if (res && res.outcome === 'accepted') toast('Суулгаж байна… дуусахад дэлгэцэн дээрх ЦАГ icon-оос нээнэ үү.','ok','Апп суулгах');
+    else toast('Цуцлагдлаа. Хүсвэл цэснээс (⋮ → Install app) дахин хийж болно.','warn');
+    try { render(); } catch (e) {}
+    return;
+  }
+  showInstallHelp();
+}
+
+/** Зааварчилгааны цонх — платформоор ялгана */
+function installHelpHTML(){
+  const u = location.host;
+  const ios = isIOS(), andr = /Android/i.test(navigator.userAgent);
+  const row = (n, t, d) => `<div style="display:flex;gap:11px;align-items:flex-start;margin:0 0 12px">
+      <span style="flex:none;width:26px;height:26px;border-radius:50%;background:var(--red);color:#fff;font-weight:800;
+        display:grid;place-items:center;font-size:13px">${n}</span>
+      <div><b>${t}</b>${d?`<div class="small" style="margin-top:2px">${d}</div>`:''}</div></div>`;
+  const steps = ios
+    ? row(1,'Safari-аар энэ хаягийг нээнэ', `${esc(u)} <span class="small">(Chrome биш — iOS-д зөвхөн Safari суулгадаг)</span>`)
+    + row(2,'Доод мөрний дунд байгаа <b>□↑ Хуваалцах</b> товчийг дарна','Хаягийн мөр дээд талд байвал баруун талын □↑')
+    + row(3,'Доош гүйлгээд <b>«Add to Home Screen»</b> («Дэлгэцэнд нэмэх»)-ыг дарна','Цэс урт бол доошоо гүйлгэнэ үү')
+    + row(4,'Баруун дээд <b>«Add»</b> дарж дуусгана','Дэлгэцэн дээр ЦАГ icon гарч, бүтэн дэлгэцээр нээгдэнэ')
+    : (andr
+      ? row(1,'Chrome-оор энэ хаягийг нээнэ', esc(u))
+      + row(2,'Баруун дээд <b>⋮</b> (3 цэг) цэсийг дарна','Цэс доошоо нээгдэнэ')
+      + row(3,'<b>«Add to Home screen»</b> эсвэл <b>«Install app»</b>-ыг дарна','Samsung Internet: ⋮ → Add page to → Home screen')
+      + row(4,'<b>«Install»</b> дарж дуусгана','Дэлгэцэн дээр ЦАГ icon гарна')
+      : row(1,'Хөтчийнхөө хаягийн мөрний баруун талаас <b>«Install» (⊕)</b> icon-ыг хайна','Chrome/Edge дээр гарна')
+      + row(2,'Эсвэл цэс → <b>«Install app» / «Add to Home screen»</b>','Утасны Chrome: ⋮ цэсэн дотор'));
+  return `<h3>📲 Апп утсанд суулгах</h3>
+    <div class="sub" style="margin:4px 0 14px">Суулгасны дараа ЦАГ icon гарч, нэг товчоор нэвтэрнэ.
+      Камер, GPS бүрэн ажиллана (HTTPS шаардлагатай — энэ хаяг HTTPS-тай ✓).</div>
+    ${steps}
+    <div class="alert amber" style="margin-top:6px">
+      <span class="ico">⚠</span><div>Эхний нээлтэд <b>«Камер» ба «Байршил» ашиглахыг зөвшөөрөх үү?</b> гэж асууна — <b>Зөвшөөрөх</b> дарна.</div>
+    </div>
+    <div class="actions"><button class="btn primary" data-act="modal-close">Ойлголоо</button></div>`;
+}
+function showInstallHelp(){ modal(installHelpHTML()); }
 // v4.4: хэвлэх үед модаль нээлттэй бол зөвхөн түүнийг, эс бөгөөс идэвхтэй табыг хэвлэнэ
 window.addEventListener('beforeprint', ()=>{
   document.body.classList.toggle('print-modal', !!document.querySelector('#overlay'));

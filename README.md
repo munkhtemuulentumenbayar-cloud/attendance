@@ -940,6 +940,12 @@ git remote add origin https://github.com/<НЭР>/attendance.git && git push -u 
   (iOS автомат зумыг сэргийлнэ), модал **доороос гардаг хуудас** шиг, тост бүтэн өргөн,
   ажилтны «Ажилд орох / Ажлаас буух» товч **нэг багана** бүтэн өргөн, хүснэгт гүйлгэх хайрцагт
 - iOS-д **«Add to Home Screen» зөвлөмж** нэвтэрсний дараа нэг удаа гарна («Ойлголоо» → дахин гарахгүй)
+- **Апп доторх «Апп суулгах»** (v4.6.1): нэвтрэх хуудсан дээр «📲 Утсанд суулгах заавар» товч,
+  толгойд «⬇ Апп суулгах» товч.
+  * **Android/Chrome** — `beforeinstallprompt` барьж авдаг тул товч дарахад **жинхэнэ Install цонх** нээгдэнэ;
+    боломжгүй үед (Safari, Firefox, iOS) автоматаар **зааварчилгааны цонх** гарна.
+  * **iPhone** — Apple-д «Install» товч огт байхгүй (зөвхөн Share → Add to Home Screen),
+    тиймээс товч нь алхам алхмаар зааварчилгааг харуулна.
 - **Демо байршлын товч**: GPS ажиллахгүй орчинд (компьютер, гадаадаас нэвтэрсэн) админы
   «Хүснэгт» таб дээр «Демо байршлаар тэмдэглэх» товч гарч, ажлын байрны координатаар тэмдэглэнэ
   (зөвхөн `demo_mode=1` үед)
@@ -949,10 +955,37 @@ git remote add origin https://github.com/<НЭР>/attendance.git && git push -u 
 автоматаар өгдөг тул `.onrender.com` хаягийг утсаараа нээхэд камер/GPS ажиллана ✓.
 Өөрийн сервер дээр бол `deploy/nginx.conf`-оор HTTPS тохируулна.
 
+### QR постер — ажилтнуудад харуулах нэг хуудас
+`make_qr_poster.py` нь **A4 постер** үүсгэнэ (QR + 3 алхмын заавар):
+```bash
+pip install segno pillow
+python3 make_qr_poster.py --url https://таны-хаяг.onrender.com
+# → exports/qr_poster.pdf (хэвлэхэд бэлэн) + qr_poster.png
+```
+Постерыг ажлын байрны хаалга дээр наана — ажилтан QR-ыг уншуулаад
+«Add to Home Screen» дарж icon болгоно. (Серверт нэмэлт сан шаардахгүй —
+энэ нь админы компьютер дээр нэг удаа ажиллуулах хэрэгсэл.)
+
+### Утсанд суулгах заавар — хэвлэх/илгээх хувилбар
+`make_phone_guide.py` нь **A4 2 хуудас** (iPhone/Safari + Android/Chrome) зурагтай заавар үүсгэнэ:
+```bash
+python3 make_phone_guide.py --url https://таны-хаяг.onrender.com
+# → exports/phone_install_guide.pdf   (хэвлэхэд бэлэн, 2 хуудас)
+# → exports/phone_install_ios.png / phone_install_android.png  (Viber/WhatsApp-аар илгээх)
+```
+Хуудас бүр толгойдоо **QR**-тай — ажилтан камераараа уншуулаад шууд эхэлнэ.
+
+### Домэйн хэрэгтэй юу?
+**Үгүй** — `*.onrender.com` үнэгүй хаяг нь HTTPS, камер, GPS, home screen суулгах
+бүгдийг бүрэн дэмжинэ. Домэйн (жишээ нь `tsag.tsoohor.mn`) нь зөвхөн брэнд/цээжлэхэд хялбар
+байдлын асуудал — Render → Settings → **Custom Domains** дээр 2 минутад холбогдоно (SSL автомат).
+Бодит ажилд чухал нь домэйн биш, **Starter + диск** (сервер 24/7, өгөгдөл хадгалагдана) — §21-ийг үзнэ үү.
+
 ### Шалгалт
 `tests/browser/mobile_check.js` — iPhone 13 (390×844, iOS UA) ба Pixel 5 (393×851, Android UA)
-эмуляцаар **45/45 PASS**: PWA мета/manifest/icon, service worker + **offline**, 44px хүрэх талбар,
+эмуляцаар **52/52 PASS**: PWA мета/manifest/icon, service worker + **offline**, 44px хүрэх талбар,
 автомат зумгүй (scale=1), хэвтээ гүйлт 0, модал-sheet, камер/GPS API бэлэн, iOS зөвлөмж,
+**апп суулгах товч + жинхэнэ `beforeinstallprompt` prompt + зааварчилгааны цонх**,
 админы хүснэгт 390px дээр уншигдах. Ажиллуулах:
 ```bash
 cd tests/browser && SHOTS=1 node mobile_check.js      # SHOTS=1 → screenshots/mobile_*.png
