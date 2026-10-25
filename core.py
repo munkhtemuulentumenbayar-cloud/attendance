@@ -4502,6 +4502,7 @@ def extra_notifications(now: datetime, day: str, emps: list[dict], recs: dict, s
     s = get_settings()
     pre = int(float(s.get("notify_pre_minutes") or 30))
     out = {"pre_start": 0, "pre_end": 0, "lunch_encourage": 0, "lunch_late": 0}
+    out["backup_reminder"] = backup_reminder(now, s)
     day_idx = date.fromisoformat(day).toordinal()
     with connect() as con:
         ensure_ops_tables(con)
@@ -4539,3 +4540,46 @@ def extra_notifications(now: datetime, day: str, emps: list[dict], recs: dict, s
                            meta={"date": day, "late_minutes": late}, dedupe=f"late:{day}:{eid}")
                 out["lunch_late"] += 0 if r.get("skipped") else 1
     return out
+
+
+# ==========================================================================
+# v4.7.1 — Аюулгүй байдлын шалгалт + нөөц хуулбарын сануулга
+# ==========================================================================
+def security_status() -> dict:
+    s = get_settings()
+    issues = []
+    if str(s.get("admin_password") or "") == "admin123":
+        issues.append({"key": "admin_pw", "text": "Админы нууц үг анхдагч байна (admin123)",
+                       "action": "Тохиргоо → Нууц үг солих"})
+    with connect() as con:
+        n_pin = con.execute("SELECT COUNT(*) c FROM employees WHERE active=1 AND pin='1234'").fetchone()["c"]
+        row = con.execute("SELECT ts FROM audit_log WHERE action='backup_download' ORDER BY id DESC LIMIT 1").fetchone()
+    if n_pin:
+        issues.append({"key": "emp_pin", "text": f"{n_pin} ажилтны PIN анхдагч (1234) байна",
+                       "action": "Ажилтнууд → ажилтан бүрийн PIN солих"})
+    days = None
+    if row:
+        try:
+            last = datetime.strptime(row["ts"], "%Y-%m-%d %H:%M:%S")
+            days = (now_local().replace(tzinfo=None) - last).days
+        except Exception:                                   # noqa
+            days = None
+    if days is None or days >= 7:
+        issues.append({"key": "backup", "text": ("Нөөц хуулбар хэзээ ч татаагүй байна" if days is None
+                                                 else f"Нөөц хуулбар {days} хоногийн өмнө татсан"),
+                       "action": "Тохиргоо → Нөөц хуулбар татах (7 хоног тутам)"})
+    return {"ok": not issues, "issues": issues, "last_backup_days": days}
+
+
+def backup_reminder(now: datetime, s: dict) -> bool:
+    """Долоо хоног тутам (Даваа гарагт) админд нөөц хуулбар татахыг сануулна."""
+    if now.isoweekday() != 1 or now.hour < 9:
+        return False
+    week = now.strftime("%G-W%V")
+    st = security_status()
+    if not any(i["key"] == "backup" for i in st["issues"]):
+        return False
+    r = notify_admins("backup", "Долоо хоногийн нөөц хуулбар",
+                      "Өгөгдлөө хадгалахын тулд Тохиргоо → Нөөц хуулбар татна уу "
+                      "(фото болон бүх бүртгэл орно).", dedupe=f"backup:{week}")
+    return not r.get("skipped")

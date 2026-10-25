@@ -50,7 +50,7 @@ from core import (LEAVE_KINDS, DAY_STATUS_LABEL, LEAVE_STATUS_LABEL, add_leave, 
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 STATIC_DIR = os.path.join(BASE_DIR, "static")
-VERSION = "4.7.0"
+VERSION = "4.7.1"
 
 MIME = {".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8",
         ".js": "application/javascript; charset=utf-8", ".json": "application/json; charset=utf-8",
@@ -904,6 +904,12 @@ def r_incident_add(h, ident):
 def r_incident_del(h, ident, iid):
     require(h, "admin")
     return core.delete_incident(int(iid))
+
+
+@route("GET", "/api/admin/security")
+def r_security(h, ident):
+    require(h, "admin")
+    return core.security_status()
 
 
 @route("GET", "/api/admin/leaves")

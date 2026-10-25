@@ -1037,7 +1037,7 @@ function loginView(){
       ${(!isStandalone()) ? `<div style="text-align:center;margin-top:14px">
         <button class="btn small" data-act="install">${ic('download')} 📲 Утсанд суулгах заавар</button></div>` : ''}
       <div class="footer-note" style="margin-top:18px">
-        Техникийн дэмжлэг: <span class="mono">/api/health</span> · Хувилбар 4.6.0
+        Техникийн дэмжлэг: <span class="mono">/api/health</span> · Хувилбар 4.7.1
       </div>
     </div></div></div>`;
 }
@@ -1345,11 +1345,13 @@ function empHistoryHTML(h){
 function adminView(){
   const b = S.board;
   return `<div class="wrap">
+    ${securityBanner()}
     <div class="tabs">
       ${[['board',`${ic('grid')} Шууд самбар`],
          ['pay',`${ic('wallet')} Цалин`],
          ['twopay',`${ic('wallet')} Хоёр төлбөр`],
          ['leave',`${ic('calendar')} Чөлөө`],
+         ['ops',`${ic('pin')} Цуцлалт · Байршил · Бонус`],
          ['site',`${ic('pin')} Ажлын байр`],
          ['month',`${ic('doc')} Сарын тайлан`],
          ['matrix',`${ic('grid')} Хүснэгт`],
@@ -1486,6 +1488,7 @@ function adminTabBody(){
     case 'pay':    return adminPayroll();
     case 'twopay': return adminTwoPay();
     case 'leave':  return adminLeaves();
+    case 'ops':    return opsTab();           // v4.7
     case 'site':   return adminSites();
     case 'month':  return adminMonth();
     case 'matrix': return adminMatrix();
@@ -2680,7 +2683,7 @@ function adminConfig(){
       <div class="kv"><span class="k">Цагийн бүс</span><span class="v">${esc(s.timezone||'')}</span></div>
       <div class="kv"><span class="k">Серверийн цаг</span><span class="v">${esc(S.meta?S.meta.server_time:'')}</span></div>
       <div class="kv"><span class="k">Ажлын өдрүүд</span><span class="v">${esc(S.meta?S.meta.workdays_label:'')}</span></div>
-      <div class="kv"><span class="k">Хувилбар</span><span class="v">4.6.0</span></div>
+      <div class="kv"><span class="k">Хувилбар</span><span class="v">4.7.1</span></div>
     </div>
   </div>`;
 }
@@ -3527,10 +3530,12 @@ async function loadPayDetail(eid, month){
 
 async function loadTabData(){
   if (S.view!=='admin') return;
+  loadSecurity().then(()=>{ if(S.view==='admin' && !S.modalOpen) render(); });   // v4.7.1
   if (S.tab==='board' && !S.board) await loadBoard(true);
   else if (S.tab==='pay'){ await loadPayroll(S.month); render(); }
   else if (S.tab==='twopay'){ await loadCycle(S.period); render(); }
   else if (S.tab==='leave'){ await loadLeaves(S.leaveMonth||S.month); render(); }
+  else if (S.tab==='ops'){ await loadOps(); render(); }   // v4.7
   else if (S.tab==='site'){ await loadSites(); await loadEmployees(true); render(); }
   else if (S.tab==='month') await loadReport(S.month);
   else if (S.tab==='matrix') await loadMatrix(S.month);
@@ -3678,5 +3683,6 @@ window.addEventListener('keydown', e=>{ if(e.key==='Escape') closeModal(); });
   }catch(e){}
 })();
 </script>
+<script src="/static/ops47.js"></script>
 </body>
 </html>
