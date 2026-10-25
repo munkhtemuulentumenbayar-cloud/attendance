@@ -412,6 +412,7 @@ def init_db(seed: bool = True) -> None:
     with _lock, connect() as con:
         con.executescript(SCHEMA)
         migrate(con)
+        ensure_ops_tables(con)          # v4.7
         for k, v in DEFAULT_SETTINGS.items():
             con.execute("INSERT OR IGNORE INTO settings(key, value) VALUES (?,?)", (k, v))
         n = con.execute("SELECT COUNT(*) c FROM employees").fetchone()["c"]
@@ -1427,6 +1428,7 @@ def absent_days(employee_id: int, month: str) -> list[str]:
         while dd <= ed:
             covered.add(dd.isoformat())
             dd += timedelta(days=1)
+    covered |= set(cancelled_dates(employee_id, f"{month}-01", f"{month}-31"))   # v4.7 цуцлагдсан өдөр = тасалт биш
     today = today_str()
     out = []
     for d in month_workdays(month):
@@ -1683,6 +1685,11 @@ def clock_in(employee_id: int, lat=None, lng=None, accuracy=None,
     now = now_local()
     emp = get_employee(employee_id)
     emp_code = (emp or {}).get("code", employee_id)
+    if is_cancelled(employee_id, day):                    # v4.7
+        return {"ok": False, "error": "Өнөөдрийн ажил цуцлагдсан тул бүртгэл хийх шаардлагагүй."}
+    _asg = assigned_site_id(employee_id, day)            # v4.7: өдрийн өөр байршил
+    if emp and _asg is not None:
+        emp = dict(emp, site_id=_asg, geofence_mode="site")
     if str(s.get("require_photo") or "1") == "1" and not photo and not force:
         return {"ok": False, "error": "Ажил эхлэхийн тулд ЗУРАГ авах шаардлагатай.",
                 "need_photo": True}
@@ -2580,7 +2587,7 @@ def scheduler_tick(now: datetime | None = None, force: bool = False) -> dict:
     for e in emps:
         eid, code = e["id"], e["code"]
         rec = recs.get(eid)
-        on_leave = leave_minutes_for_window(eid, day, start, end) > 0
+        on_leave = leave_minutes_for_window(eid, day, start, end) > 0 or is_cancelled(eid, day)   # v4.7
         # 1) Ажил эхэлсэн — бүртгэлгүй бол сануулга
         if str(s.get("notify_start") or "1") == "1" and now >= start and not rec and not on_leave:
             r = notify(eid, "start", "Ажил эхэлсэн — бүртгүүлнэ үү",
@@ -2656,6 +2663,11 @@ def scheduler_tick(now: datetime | None = None, force: bool = False) -> dict:
                 _save_record(fixed, con)
             con.commit()
 
+    # v4.7: өглөөний / орой / үдийн урамшуулал + хоцролтын мэдэгдэл
+    try:
+        out["extra"] = extra_notifications(now, day, emps, recs, start, end, lw)
+    except Exception as ex:                       # noqa
+        out["extra_error"] = str(ex)
     out["ok"] = True
     out["at"] = now.strftime("%Y-%m-%d %H:%M")
     return out
@@ -3418,6 +3430,7 @@ def _absent_days_range(employee_id: int, start: str, end: str) -> list[str]:
         while dd <= ed:
             covered.add(dd.isoformat())
             dd += timedelta(days=1)
+    covered |= set(cancelled_dates(employee_id, start, end))   # v4.7
     today = today_str()
     workdays = period_workdays(start, end)
     out = []
@@ -4138,3 +4151,391 @@ if __name__ == "__main__":
     print("DB бэлэн:", DB_PATH)
     print("Ажилтны тоо:", len(list_employees()))
     print("Ажлын өдөр мөн үү (өнөөдөр):", is_workday(today_str()))
+
+
+# ==========================================================================
+# v4.7 — Цуцлах / өөр байршилд оноох / урамшуулал / өдрийн сануулга
+# ==========================================================================
+BONUS_PER_DAY = 10000
+BONUS_LATE_ABSENT_LIMIT_MIN = 120       # хоцролт + тасалт нийлээд ≥120 мин → бонус алдана
+BONUS_MAX_FREE_DAYS = 2                 # 2 ба түүнээс дээш чөлөө → бонус алдана
+INCIDENT_KINDS = {
+    "alcohol": "Ажил дээр архи уусан / согтуу / архины үнэртэй ирсэн",
+    "equipment": "Ажлын хэрэгслийг буруу ашиглан эвдсэн (засах шаардлагатай)",
+    "material": "Барилгын материалыг зохисгүй ашиглаж / үрсэн",
+}
+ENCOURAGE_MSGS = [
+    "Сайн явцгаая! Өнөөдөр ч сайн ажиллаарай 💪",
+    "Сайхан ажиллацгаая! Таны хөдөлмөр бидний хамгийн том хүч 👷",
+    "Хамтдаа сайн ажиллая! Үдийн хоолоо сайхан идээрэй 🍲",
+    "Хамтдаа л бүх ажлыг амжуулна! Үргэлжлүүлээрэй 🏗️",
+    "Чи маш сайн ажиллаж байна! Үлдсэн цагаа ч сайхан өнгөрүүлээрэй 🌟",
+]
+
+OPS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS work_cancellations (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    work_date   TEXT NOT NULL,
+    scope       TEXT NOT NULL,                 -- all | site
+    site_id     INTEGER,
+    reason      TEXT DEFAULT '',
+    active      INTEGER NOT NULL DEFAULT 1,
+    created_at  TEXT NOT NULL,
+    created_by  TEXT DEFAULT 'admin'
+);
+CREATE TABLE IF NOT EXISTS day_assignments (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    employee_id  INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+    work_date    TEXT NOT NULL,
+    site_id      INTEGER NOT NULL,
+    created_at   TEXT NOT NULL,
+    UNIQUE(employee_id, work_date)
+);
+CREATE TABLE IF NOT EXISTS conduct_incidents (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    employee_id  INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+    month        TEXT NOT NULL,                 -- YYYY-MM
+    kind         TEXT NOT NULL,                 -- alcohol | equipment | material
+    note         TEXT DEFAULT '',
+    created_at   TEXT NOT NULL,
+    created_by   TEXT DEFAULT 'admin'
+);
+"""
+
+
+def ensure_ops_tables(con) -> None:
+    con.executescript(OPS_SCHEMA)
+
+
+# ---------------- Цуцлалт (өдөр / байршил / бүгд) ----------------
+def cancelled_dates(employee_id: int, start: str, end: str) -> list[str]:
+    """Тухайн ажилтанд [start, end] хугацаанд цуцлагдсан ажлын өдрүүд."""
+    out = []
+    with connect() as con:
+        ensure_ops_tables(con)
+        rows = con.execute("SELECT * FROM work_cancellations WHERE active=1 AND work_date BETWEEN ? AND ?",
+                           (start, end)).fetchall()
+        for r in rows:
+            d = r["work_date"]
+            if r["scope"] == "all" or (r["scope"] == "site" and r["site_id"] is not None
+                                       and effective_site_id(employee_id, d, con) == r["site_id"]):
+                out.append(d)
+    return sorted(set(out))
+
+
+def is_cancelled(employee_id: int, day: str) -> bool:
+    return day in cancelled_dates(employee_id, day, day)
+
+
+def assigned_site_id(employee_id: int, day: str, con=None) -> int | None:
+    own = con is None
+    con = con or connect()
+    try:
+        ensure_ops_tables(con)
+        r = con.execute("SELECT site_id FROM day_assignments WHERE employee_id=? AND work_date=?",
+                        (employee_id, day)).fetchone()
+        return int(r["site_id"]) if r else None
+    finally:
+        if own:
+            con.close()
+
+
+def effective_site_id(employee_id: int, day: str, con=None) -> int | None:
+    """Тухайн өдөр ажилтны ажлын байр: өдрийн оноолт → үндсэн байр."""
+    a = assigned_site_id(employee_id, day, con)
+    if a is not None:
+        return a
+    emp = get_employee(employee_id) or {}
+    return emp.get("site_id")
+
+
+def cancel_work(day: str, scope: str = "all", site_id: int | None = None,
+                reason: str = "", by: str = "admin") -> dict:
+    if not re.match(r"^\d{4}-\d{2}-\d{2}$", day or ""):
+        return {"ok": False, "error": "Огноо буруу байна."}
+    if scope not in ("all", "site"):
+        return {"ok": False, "error": "Цуцлах хэлбэр буруу (all | site)."}
+    if scope == "site":
+        if not site_id or not get_site(site_id):
+            return {"ok": False, "error": "Байршил олдсонгүй."}
+        site_id = int(site_id)
+    else:
+        site_id = None
+    ts = now_str()
+    with _lock, connect() as con:
+        ensure_ops_tables(con)
+        cur = con.execute("INSERT INTO work_cancellations(work_date, scope, site_id, reason, active, created_at, created_by)"
+                          " VALUES(?,?,?,?,1,?,?)", (day, scope, site_id, reason or "", ts, by))
+        cid = cur.lastrowid
+        con.commit()
+    affected = cancel_affected(day, scope, site_id)
+    site_name = "Бүх байршил" if scope == "all" else (get_site(site_id) or {}).get("name", "")
+    why = f" Шалтгаан: {reason}." if reason else ""
+    for e in affected:
+        notify(e["id"], "cancel", "Өнөөдрийн ажил ЦУЦЛАГДЛАА",
+               f"{day} — {site_name}. Ажил цуцлагдсан тул энэ өдөр бүртгэл хийх шаардлагагүй.{why} "
+               "Энэ өдөр цалин бодогдохгүй.", meta={"date": day, "cancel_id": cid},
+               dedupe=f"cancel:{cid}:{e['id']}")
+    audit(by, "cancel_work", f"{day} {scope} {site_name} n={len(affected)}")
+    return {"ok": True, "id": cid, "affected": len(affected), "scope": scope, "site_name": site_name}
+
+
+def cancel_affected(day: str, scope: str, site_id: int | None) -> list[dict]:
+    out = []
+    with connect() as con:
+        ensure_ops_tables(con)
+        for e in list_employees(active_only=True):
+            if scope == "all" or effective_site_id(e["id"], day, con) == site_id:
+                out.append(e)
+    return out
+
+
+def list_cancellations(month: str | None = None, include_inactive: bool = False) -> list[dict]:
+    with connect() as con:
+        ensure_ops_tables(con)
+        q = ("SELECT c.*, s.name AS site_name FROM work_cancellations c "
+             "LEFT JOIN sites s ON s.id=c.site_id WHERE 1=1")
+        args: list = []
+        if month:
+            q += " AND c.work_date LIKE ?"; args.append(f"{month}-%")
+        if not include_inactive:
+            q += " AND c.active=1"
+        q += " ORDER BY c.work_date DESC, c.id DESC"
+        rows = [dict(r) for r in con.execute(q, args).fetchall()]
+    for r in rows:
+        r["site_name"] = r.get("site_name") or ("Бүх байршил" if r["scope"] == "all" else "")
+        r["scope_label"] = "Бүх байршил" if r["scope"] == "all" else f"Зөвхөн: {r['site_name']}"
+        r["affected"] = len(cancel_affected(r["work_date"], r["scope"], r["site_id"])) if r["active"] else 0
+    return rows
+
+
+def undo_cancel(cid: int, by: str = "admin") -> dict:
+    with _lock, connect() as con:
+        ensure_ops_tables(con)
+        r = con.execute("SELECT * FROM work_cancellations WHERE id=?", (cid,)).fetchone()
+        if not r:
+            return {"ok": False, "error": "Цуцлалт олдсонгүй."}
+        con.execute("UPDATE work_cancellations SET active=0 WHERE id=?", (cid,))
+        con.commit()
+    for e in cancel_affected(r["work_date"], r["scope"], r["site_id"]):
+        notify(e["id"], "info", "Ажил СЭРГЭЭГДЛЭЭ",
+               f"{r['work_date']} өдрийн ажил дахин эхэллээ. Ажлаа эхлүүлнэ үү.",
+               meta={"date": r["work_date"]}, dedupe=f"uncancel:{cid}:{e['id']}")
+    audit(by, "undo_cancel", str(cid))
+    return {"ok": True}
+
+
+# ---------------- Өдрийн байршил оноолт (олон байршилд ажиллуулах) ----------------
+def assign_sites(day: str, employee_ids: list[int], site_id: int, by: str = "admin") -> dict:
+    if not get_site(site_id):
+        return {"ok": False, "error": "Байршил олдсонгүй."}
+    ts = now_str()
+    n = 0
+    with _lock, connect() as con:
+        ensure_ops_tables(con)
+        for eid in employee_ids:
+            con.execute("INSERT INTO day_assignments(employee_id, work_date, site_id, created_at) VALUES(?,?,?,?)"
+                        " ON CONFLICT(employee_id, work_date) DO UPDATE SET site_id=excluded.site_id",
+                        (int(eid), day, int(site_id), ts))
+            n += 1
+        con.commit()
+    site = get_site(site_id) or {}
+    for eid in employee_ids:
+        notify(int(eid), "info", "Өнөөдөр өөр байршилд ажиллана",
+               f"{day} — ажлын байр: {site.get('name', '')}. Ажил эхлэхдээ тухайн байршилд бүртгүүлнэ үү.",
+               meta={"date": day, "site_id": site_id})
+    audit(by, "assign_sites", f"{day} site={site_id} n={n}")
+    return {"ok": True, "assigned": n}
+
+
+def unassign_site(day: str, employee_id: int) -> dict:
+    with _lock, connect() as con:
+        ensure_ops_tables(con)
+        con.execute("DELETE FROM day_assignments WHERE employee_id=? AND work_date=?", (employee_id, day))
+        con.commit()
+    return {"ok": True}
+
+
+def day_roster(day: str) -> dict:
+    """Тухайн өдрийн байршил тус бүрийн ажилтнуудын жагсаалт (админд)."""
+    emps = list_employees(active_only=True)
+    sites = {s["id"]: s for s in list_sites(active_only=True)}
+    with connect() as con:
+        ensure_ops_tables(con)
+        asg = {r["employee_id"]: r["site_id"] for r in con.execute(
+            "SELECT * FROM day_assignments WHERE work_date=?", (day,)).fetchall()}
+    rows, groups = [], {}
+    cancelled_all = any(c["scope"] == "all" for c in list_cancellations_for_day(day))
+    cancelled_sites = {c["site_id"] for c in list_cancellations_for_day(day) if c["scope"] == "site"}
+    for e in emps:
+        sid = asg.get(e["id"], e.get("site_id"))
+        extra = e["id"] in asg
+        cancelled = cancelled_all or (sid in cancelled_sites)
+        row = {"employee_id": e["id"], "code": e["code"], "full_name": e["full_name"],
+               "site_id": sid, "site_name": (sites.get(sid) or {}).get("name", "—"),
+               "assigned_today": extra, "cancelled": cancelled}
+        rows.append(row)
+        groups.setdefault(row["site_name"], []).append(row)
+    return {"date": day, "rows": rows, "groups": groups, "all_cancelled": cancelled_all,
+            "cancellations": list_cancellations_for_day(day)}
+
+
+def list_cancellations_for_day(day: str) -> list[dict]:
+    with connect() as con:
+        ensure_ops_tables(con)
+        rows = [dict(r) for r in con.execute(
+            "SELECT c.*, s.name AS site_name FROM work_cancellations c LEFT JOIN sites s ON s.id=c.site_id"
+            " WHERE c.active=1 AND c.work_date=?", (day,)).fetchall()]
+    for r in rows:
+        r["site_name"] = r.get("site_name") or "Бүх байршил"
+    return rows
+
+
+# ---------------- Ёс зүйн зөрчил (бонусын нөхцөл) ----------------
+def add_incident(employee_id: int, month: str, kind: str, note: str = "", by: str = "admin") -> dict:
+    if kind not in INCIDENT_KINDS:
+        return {"ok": False, "error": "Зөрчлийн төрөл буруу."}
+    if not get_employee(employee_id):
+        return {"ok": False, "error": "Ажилтан олдсонгүй."}
+    with _lock, connect() as con:
+        ensure_ops_tables(con)
+        cur = con.execute("INSERT INTO conduct_incidents(employee_id, month, kind, note, created_at, created_by)"
+                          " VALUES(?,?,?,?,?,?)", (employee_id, month, kind, note or "", now_str(), by))
+        con.commit()
+    audit(by, "incident", f"{employee_id} {month} {kind}")
+    return {"ok": True, "id": cur.lastrowid}
+
+
+def list_incidents(month: str, employee_id: int | None = None) -> list[dict]:
+    with connect() as con:
+        ensure_ops_tables(con)
+        q = ("SELECT i.*, e.code, e.full_name FROM conduct_incidents i JOIN employees e ON e.id=i.employee_id"
+             " WHERE i.month=?")
+        args: list = [month]
+        if employee_id is not None:
+            q += " AND i.employee_id=?"; args.append(employee_id)
+        q += " ORDER BY i.id DESC"
+        rows = [dict(r) for r in con.execute(q, args).fetchall()]
+    for r in rows:
+        r["kind_label"] = INCIDENT_KINDS.get(r["kind"], r["kind"])
+    return rows
+
+
+def delete_incident(iid: int) -> dict:
+    with _lock, connect() as con:
+        ensure_ops_tables(con)
+        con.execute("DELETE FROM conduct_incidents WHERE id=?", (iid,))
+        con.commit()
+    return {"ok": True}
+
+
+# ---------------- Сарын урамшуулал ----------------
+def bonus_for_month(employee_id: int, month: str) -> dict:
+    """
+    10 000₮ × ажилласан өдөр — гэхдээ сард ДОР НЬ ЗӨРЧЛИЙН НӨХЦӨЛ ХАНГАСАН БОЛ Л:
+      a) 2 ба түүнээс дээш чөлөөгүй (чөлөө < 2 өдөр)
+      b) хоцролт + тасалт нийлээд 120 мин-аас багагүй биш (< 120 мин)
+      c) архи / согтуу / архины үнэр — зөрчил бүртгэгдээгүй
+      d) эвдэрсэн хэрэгсэл — зөрчил бүртгэгдээгүй
+      e) материал зохисгүй ашигласан — зөрчил бүртгэгдээгүй
+    """
+    emp = get_employee(employee_id) or {}
+    with connect() as con:
+        recs = [dict(r) for r in con.execute(
+            "SELECT * FROM attendance WHERE employee_id=? AND work_date LIKE ?",
+            (employee_id, f"{month}-%")).fetchall()]
+    worked_days = sum(1 for r in recs if r.get("clock_in"))
+    late_min = sum(int(r.get("late_minutes") or 0) for r in recs if r.get("clock_in"))
+    absent = absent_days(employee_id, month)
+    absent_min = len(absent) * shift_minutes(None, "day")
+    free_days = 0
+    seen: set[str] = set()
+    for lv in list_leaves(month, employee_id, status="approved"):
+        if int(lv["all_day"] or 0) != 1:
+            continue
+        dd = date.fromisoformat(lv["start_date"])
+        ed = date.fromisoformat(lv["end_date"] or lv["start_date"])
+        while dd <= ed:
+            if dd.isoformat().startswith(month):
+                seen.add(dd.isoformat())
+            dd += timedelta(days=1)
+    free_days = len(seen)
+    incidents = list_incidents(month, employee_id)
+    inc_kinds = sorted({i["kind"] for i in incidents})
+    late_absent = late_min + absent_min
+    checks = [
+        {"key": "free", "label": "2 ба түүнээс дээш чөлөөгүй", "value": f"{free_days} өдөр чөлөө",
+         "ok": free_days < BONUS_MAX_FREE_DAYS},
+        {"key": "late", "label": "Хоцролт + тасалт 120 мин-аас бага",
+         "value": f"{late_absent} мин (хоцролт {late_min}, тасалт {absent_min})",
+         "ok": late_absent < BONUS_LATE_ABSENT_LIMIT_MIN},
+        {"key": "alcohol", "label": "Согтуу / архи уусан зөрчилгүй",
+         "value": "зөрчилгүй" if "alcohol" not in inc_kinds else "ЗӨРЧИЛТЭЙ", "ok": "alcohol" not in inc_kinds},
+        {"key": "equipment", "label": "Хэрэгсэл эвдээгүй",
+         "value": "зөрчилгүй" if "equipment" not in inc_kinds else "ЗӨРЧИЛТЭЙ", "ok": "equipment" not in inc_kinds},
+        {"key": "material", "label": "Материалыг зөв ашигласан",
+         "value": "зөрчилгүй" if "material" not in inc_kinds else "ЗӨРЧИЛТЭЙ", "ok": "material" not in inc_kinds},
+    ]
+    eligible = all(c["ok"] for c in checks)
+    amount = worked_days * BONUS_PER_DAY if eligible else 0
+    return {
+        "employee_id": employee_id, "code": emp.get("code"), "full_name": emp.get("full_name"),
+        "month": month, "worked_days": worked_days, "bonus_per_day": BONUS_PER_DAY,
+        "potential": worked_days * BONUS_PER_DAY, "eligible": eligible, "bonus": amount,
+        "checks": checks, "incidents": incidents,
+        "status_label": "Бонус авна" if eligible else "Бонус алдсан",
+        "status_color": "green" if eligible else "red",
+        "rule_note": "Сард бүх нөхцөл биелсэн үед л ажилласан өдрийн бонус олгогдоно.",
+    }
+
+
+def bonus_table(month: str) -> dict:
+    rows = [bonus_for_month(e["id"], month) for e in list_employees(active_only=True)]
+    return {"month": month, "rows": rows,
+            "total": sum(r["bonus"] for r in rows),
+            "eligible_count": sum(1 for r in rows if r["eligible"])}
+
+
+# ---------------- Өдрийн сануулга (өглөө / үд / орой / шөнө) ----------------
+def extra_notifications(now: datetime, day: str, emps: list[dict], recs: dict, start: datetime,
+                        end: datetime, lw) -> dict:
+    s = get_settings()
+    pre = int(float(s.get("notify_pre_minutes") or 30))
+    out = {"pre_start": 0, "pre_end": 0, "lunch_encourage": 0, "lunch_late": 0}
+    day_idx = date.fromisoformat(day).toordinal()
+    with connect() as con:
+        ensure_ops_tables(con)
+    for e in emps:
+        eid = e["id"]
+        if is_cancelled(eid, day):
+            continue
+        rec = recs.get(eid) or {}
+        on_leave = leave_minutes_for_window(eid, day, start, end) > 0
+        clocked_in = bool(rec.get("clock_in"))
+        clocked_out = bool(rec.get("clock_out"))
+        # 1) Өглөө — ажил эхлэхээс өмнө
+        if (not on_leave and not clocked_in and start - timedelta(minutes=pre) <= now < start + timedelta(minutes=60)):
+            r = notify(eid, "pre_start", f"Ажил эхлэхэд {pre} минут үлдлээ",
+                       f"{start.strftime('%H:%M')}-д ажил эхэлнэ. Ирээд зурагтай бүртгэлээ хийгээрэй 📸",
+                       meta={"date": day}, dedupe=f"pre_start:{day}:{eid}")
+            out["pre_start"] += 0 if r.get("skipped") else 1
+        # 2) Орой — ажил дуусахаас өмнө
+        if (not on_leave and not clocked_out and end - timedelta(minutes=pre) <= now < end + timedelta(minutes=60)):
+            r = notify(eid, "pre_end", f"Ажил дуусахад {pre} минут үлдлээ",
+                       f"{end.strftime('%H:%M')}-д ажил дуусна. Гарахдаа зураг авч гарах бүртгэл хийгээрэй 📸",
+                       meta={"date": day}, dedupe=f"pre_end:{day}:{eid}")
+            out["pre_end"] += 0 if r.get("skipped") else 1
+        # 3) Үд — урамшуулал + хоцорсон бол хоцролтын мэдээлэл
+        if lw and lw[0] <= now < lw[1] and not on_leave and clocked_in:
+            msg = ENCOURAGE_MSGS[(day_idx + eid) % len(ENCOURAGE_MSGS)]
+            r = notify(eid, "encourage", "Сайн ажиллаарай!", msg, meta={"date": day},
+                       dedupe=f"lunch:{day}:{eid}")
+            out["lunch_encourage"] += 0 if r.get("skipped") else 1
+            late = int(rec.get("late_minutes") or 0)
+            if late > 0:
+                r = notify(eid, "late", f"Өнөөдөр {late} минут хоцорлоо",
+                           f"Өнөөдөр та {late} минут хоцорлоо. Маргааш цагтаа ирэхийг хичээгээрэй. "
+                           f"Сард хоцролт + тасалт нийлээд 120 мин-аас давбал бонус алдагдана.",
+                           meta={"date": day, "late_minutes": late}, dedupe=f"late:{day}:{eid}")
+                out["lunch_late"] += 0 if r.get("skipped") else 1
+    return out

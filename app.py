@@ -50,7 +50,7 @@ from core import (LEAVE_KINDS, DAY_STATUS_LABEL, LEAVE_STATUS_LABEL, add_leave, 
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 STATIC_DIR = os.path.join(BASE_DIR, "static")
-VERSION = "4.6.0"
+VERSION = "4.7.0"
 
 MIME = {".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8",
         ".js": "application/javascript; charset=utf-8", ".json": "application/json; charset=utf-8",
@@ -809,6 +809,103 @@ def r_site_delete(h, ident, sid):
 
 
 # ---------------------------- Чөлөө (v4: нэг төрөл, хүсэлт → батлах) ----------------------------
+# ==========================================================================
+# v4.7 — цуцлалт, өдрийн байршил, бонус, зөрчил
+# ==========================================================================
+@route("GET", "/api/admin/cancellations")
+def r_cancel_list(h, ident):
+    require(h, "admin")
+    month = h.query.get("month", [""])[0] or None
+    return {"cancellations": core.list_cancellations(month),
+            "scopes": {"all": "Бүх байршил", "site": "Зөвхөн нэг байршил"}}
+
+
+@route("POST", "/api/admin/cancellations")
+def r_cancel_add(h, ident):
+    require(h, "admin")
+    b = h.body or {}
+    res = core.cancel_work(b.get("date") or today_str(), b.get("scope", "all"),
+                           b.get("site_id"), b.get("reason", ""), by="admin")
+    if not res.get("ok"):
+        raise ApiError(400, res.get("error", "Цуцлах боломжгүй."))
+    return res
+
+
+@route("POST", "/api/admin/cancellations/{cid}/undo")
+def r_cancel_undo(h, ident, cid):
+    require(h, "admin")
+    res = core.undo_cancel(int(cid), by="admin")
+    if not res.get("ok"):
+        raise ApiError(404, res.get("error", "Олдсонгүй."))
+    return res
+
+
+@route("GET", "/api/admin/roster")
+def r_roster(h, ident):
+    require(h, "admin")
+    day = h.query.get("date", [today_str()])[0]
+    return core.day_roster(day)
+
+
+@route("POST", "/api/admin/assignments")
+def r_assign(h, ident):
+    require(h, "admin")
+    b = h.body or {}
+    ids = [int(x) for x in (b.get("employee_ids") or [])]
+    if not ids or not b.get("site_id"):
+        raise ApiError(400, "Ажилтан болон байршил сонгоно уу.")
+    res = core.assign_sites(b.get("date") or today_str(), ids, int(b["site_id"]), by="admin")
+    if not res.get("ok"):
+        raise ApiError(400, res.get("error", "Оноох боломжгүй."))
+    return res
+
+
+@route("POST", "/api/admin/assignments/clear")
+def r_unassign(h, ident):
+    require(h, "admin")
+    b = h.body or {}
+    return core.unassign_site(b.get("date") or today_str(), int(b.get("employee_id", 0)))
+
+
+@route("GET", "/api/admin/bonus")
+def r_bonus_all(h, ident):
+    require(h, "admin")
+    month = _month_param(h)
+    data = core.bonus_table(month)
+    data["incident_kinds"] = core.INCIDENT_KINDS
+    data["per_day"] = core.BONUS_PER_DAY
+    return data
+
+
+@route("GET", "/api/employee/bonus")
+def r_bonus_me(h, ident):
+    ident = require(h, "employee")
+    if not ident.get("employee_id"):
+        raise ApiError(403, "Энэ хэсэг зөвхөн ажилтанд зориулагдсан.")
+    month = _month_param(h)
+    data = core.bonus_for_month(int(ident["employee_id"]), month)
+    data.pop("incidents", None)              # зөрчлийн дэлгэрэнгүйг ажилтанд харуулахгүй
+    data["checks"] = [{k: v for k, v in c.items() if k != "value"} for c in data["checks"]]
+    return data
+
+
+@route("POST", "/api/admin/incidents")
+def r_incident_add(h, ident):
+    require(h, "admin")
+    b = h.body or {}
+    res = core.add_incident(int(b.get("employee_id", 0)), b.get("month") or today_str()[:7],
+                            b.get("kind", ""), b.get("note", ""), by="admin")
+    if not res.get("ok"):
+        raise ApiError(400, res.get("error", "Бүртгэх боломжгүй."))
+    return res
+
+
+@route("POST", "/api/admin/incidents/{iid}/delete")
+def r_incident_del(h, ident, iid):
+    require(h, "admin")
+    return core.delete_incident(int(iid))
+
+
 @route("GET", "/api/admin/leaves")
 def r_leaves(h, ident):
     require(h, "admin")
