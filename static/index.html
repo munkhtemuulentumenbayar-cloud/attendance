@@ -1120,12 +1120,6 @@ function empLoginForm(){
     <div class="field"><label class="f">ПИН код</label>
       <input type="password" id="empPin" placeholder="4 оронтой ПИН" maxlength="10" required></div>
     <button class="btn primary" style="width:100%;justify-content:center;padding:12px" type="submit">Нэвтрэх</button>
-    <div class="demo-box" style="margin-top:16px">
-      <b>Демо ажилтнууд:</b> EMP001 … EMP012 — ПИН код <b>1234</b>
-      <div class="chiprow">
-        ${['EMP001','EMP002','EMP005','EMP008'].map(c=>`<button type="button" class="chip" data-act="fill" data-code="${c}">${c}</button>`).join('')}
-      </div>
-    </div>
   </form>`;
 }
 function adminLoginForm(){
@@ -1134,11 +1128,8 @@ function adminLoginForm(){
     <div class="field"><label class="f">Хэрэглэгчийн нэр</label>
       <input type="text" id="admUser" value="admin" required></div>
     <div class="field"><label class="f">Нууц үг</label>
-      <input type="password" id="admPass" value="admin123" required></div>
+      <input type="password" id="admPass" required></div>
     <button class="btn primary" style="width:100%;justify-content:center;padding:12px" type="submit">Нэвтрэх</button>
-    <div class="demo-box" style="margin-top:16px">
-      <b>Демо эрх:</b> admin / admin123 — Тохиргоо → Нууц үг солих хэсгээс солино уу.
-    </div>
   </form>`;
 }
 

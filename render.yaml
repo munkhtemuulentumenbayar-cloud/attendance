@@ -47,4 +47,4 @@ services:
     disk:
       name: attendance-data
       mountPath: /app/data         # сан + зураг (data/photos) энд хадгалагдана
-      sizeGB: 1                    # 1 GB ≈ 1–2 жилийн зураг (жижиг бригад)
+      sizeGB: 5                    # 5 GB ≈ олон жилийн бүртгэл + фото (3–4 сарын фото)

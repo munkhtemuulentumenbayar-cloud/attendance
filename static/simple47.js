@@ -59,7 +59,7 @@ function simpleEmployeeView(){
     <div class="simple-tiles">
       <button class="simple-tile" onclick="simpleMoney()"><span class="emo">💰</span>Миний цалин</button>
       <button class="simple-tile" onclick="simpleBonus()"><span class="emo">🎁</span>Миний бонус</button>
-      <button class="simple-tile" data-act="req-leave"><span class="emo">🏖</span>Чөлөө хүсэх</button>
+      <button class="simple-tile" data-act="req-leave"><span class="emo">🏖️</span>Чөлөө хүсэх</button>
       <button class="simple-tile" data-act="notif"><span class="emo">🔔</span>Мэдэгдэл</button>
     </div>
     <div class="simple-foot">
@@ -181,9 +181,9 @@ function simpleAdminView(){
     <div class="tiles">
       ${tile('board','📋','Өнөөдөр<br>хэн ажиллаж байгаа',"blue",'Ирсэн, ирээгүй')}
       ${tile('live','📍','Ажилчдын<br>байршил',"blue",'Амьд газрын зураг')}
-      ${tile('ops','🌧','Ажил цуцлах',"red",'Цас, салхи, бороо')}
+      ${tile('ops','🌧️','Ажил цуцлах',"red",'Цас, салхи, бороо')}
       ${tile('ops','📍','Өөр байршилд<br>оноох',"",'Өдрөөр')}
-      ${tile('leave','🏖','Чөлөөний<br>хүсэлт',"green",'Батлах / татгалзах')}
+      ${tile('leave','🏖️','Чөлөөний<br>хүсэлт',"green",'Батлах / татгалзах')}
       ${tile('pay','💰','Цалин',"",'Сараар')}
       ${tile('ops','🎁','Бонус ба<br>зөрчил',"",'Сар бүр')}
       ${tile('emp','👷','Ажилтнууд',"",'Нэмэх, PIN солих')}
