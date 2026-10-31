@@ -2863,6 +2863,9 @@ function employeeModal(emp){
     ${isNew?'':`<div class="field"><label class="f">Төлөв</label>
       <select id="eActive"><option value="1" ${e.active?'selected':''}>Идэвхтэй</option>
       <option value="0" ${!e.active?'selected':''}>Идэвхгүй</option></select></div>`}
+    ${isNew?'':`<div style="margin:14px 0 4px;padding-top:12px;border-top:1px dashed #fca5a5">
+      <button class="btn" style="color:#b91c1c;border-color:#fca5a5" data-act="emp-delete" data-id="${e.id}" data-code="${esc(e.code)}">Бүрмөсөн устгах</button>
+      <div class="small" style="margin-top:6px">Ирц, цалин, зураг бүгд устна. Буцаах боломжгүй. (Зөвхөн идэвхгүй болгохын тулд «Төлөв»-өө «Идэвхгүй» болгоно.)</div></div>`}
     <div class="actions"><button class="btn" data-act="modal-close">Болих</button>
       <button class="btn primary" data-act="emp-save" data-id="${e.id||''}">${ic('save')} Хадгалах</button></div>`);
   return o;
@@ -3438,6 +3441,15 @@ function bind(){
     };
     if (act==='emp-new') el.onclick = ()=>employeeModal(null);
     if (act==='emp-edit') el.onclick = ()=>{ const e=(S.employees||[]).find(x=>String(x.id)===String(el.dataset.id)); employeeModal(e); };
+    if (act==='emp-delete') el.onclick = async ()=>{
+      const code = el.dataset.code;
+      const typed = prompt(`${code} ажилтныг БҮРМӨСӨН устгана. Ирц, цалин, зураг бүгд устна, буцаах боломжгүй.\n\nТасалбарлах бол ажилтны кодыг дахин бичнэ үү:`);
+      if (typed === null) return;
+      try{
+        const r = await api('/api/admin/employees/'+el.dataset.id, {method:'DELETE', body:{confirm_code: typed.trim()}});
+        toast(r.message,'ok'); closeModal(); await loadEmployees(); render();
+      }catch(e){ toast(e.message,'err'); }
+    };
     if (act==='emp-save') el.onclick = async ()=>{
       const id = el.dataset.id;
       try{
