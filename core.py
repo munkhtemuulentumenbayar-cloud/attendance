@@ -613,13 +613,18 @@ def segment_day_night_minutes(employee_id: int, day: str) -> tuple[int, int]:
     return day_min, night_min
 
 
+DAY_RATE_DIVISOR_MIN = 600  # өдрийн цагийн тарифын хуваагч (10 цаг)
+
+
 def hourly_rate(daily_rate, shift: str = "day", mult: float = 1.0) -> float:
     """
     Цагийн тариф = (өдрийн цалин × ээлжийн коэффициент) ÷ ээлжийн бүтэн цаг.
       * өдөр: 150 000₮ ÷ 10ц = 15 000₮/ц (үдийн завсарлага орсон)
       * шөнө: 150 000₮ ÷ 8ц  = 18 750₮/ц (хамгаалалт 50% бол 9 375₮/ц)
     """
-    mins = shift_minutes(today_str(), shift)
+    # Өдрийн цагийн тариф тогтмол 10 ц (600 мин) — өвлийн 09–18 ээлжид ч 15 000₮/ц хэвээр.
+    # Ээлжийн цонх (paid_minutes_per_day) өөрчлөгдсөн ч энэ хуваагч өөрчлөгдөхгүй.
+    mins = shift_minutes(today_str(), "night") if shift == "night" else DAY_RATE_DIVISOR_MIN
     return float(daily_rate or 0) * float(mult or 1.0) / (mins / 60.0)
 
 
