@@ -1108,7 +1108,7 @@ function loginView(){
       ${(!isStandalone()) ? `<div style="text-align:center;margin-top:14px">
         <button class="btn small" data-act="install">${ic('download')} 📲 Утсанд суулгах заавар</button></div>` : ''}
       <div class="footer-note" style="margin-top:18px">
-        Техникийн дэмжлэг: <span class="mono">/api/health</span> · Хувилбар 4.7.7
+        Техникийн дэмжлэг: <span class="mono">/api/health</span> · Хувилбар 4.7.8
       </div>
     </div></div></div>`;
 }
@@ -1629,7 +1629,7 @@ function adminTwoPay(){
     </div>
     <div class="sub" style="margin-top:10px">${ic('info',14)} Аванс авах нөхцөл:
       ${esc(cy.advance_window[0])} → ${esc(cy.advance_window[1])} хооронд <b>${r.min_full_days||7} хоногоос дээш</b> бүтэн өдөр
-      ажилласан байх (бүтэн өдөр = ээлжийн ${Math.round((r.min_credit||0.9)*100)}%-иас дээш).
+      ажилласан байх (бүтэн өдөр = ээлжийн ${Math.round((r.min_credit||0.8)*100)}%-иас дээш).
       Аванс авсан бол ${esc(cy.payout_date)}-ны үндсэн цалингаас хасагдана.
       ${r.cap_earned?'Аванс нь 11–24-нд ажилласан цалингаас хэтрэхгүй.':''}
       ${r.enabled?'':'<b style="color:#b91c1c">Авансын модуль одоогоор унтраалттай.</b>'}</div>
@@ -1707,7 +1707,7 @@ function advDetailHTML(eid){
     </div>
     ${row.cap_note?`<div class="alert amber" style="margin-top:10px"><span class="ico">${ic('alert',20)}</span><div>${esc(row.cap_note)}</div></div>`:''}
     <div class="small" style="margin-top:10px"><b>Бүтэн өдрүүд:</b> ${esc(full)}</div>
-    <div class="small" style="margin-top:4px">Бүтэн өдөр = тухайн ээлжийн ${Math.round((cy.rules?cy.rules.min_credit:0.9)*100)}%-иас дээш ажилласан
+    <div class="small" style="margin-top:4px">Бүтэн өдөр = тухайн ээлжийн ${Math.round((cy.rules?cy.rules.min_credit:0.8)*100)}%-иас дээш ажилласан
       (шөнийн ээлж мөн бүтэн өдөр). Аванс нь ${esc(cy.payout_date)}-ны үндсэн цалингаас хасагдана.</div>
     <div class="row" style="margin-top:12px">
       ${row.status!=='paid'
@@ -2758,7 +2758,7 @@ function adminConfig(){
       <div class="kv"><span class="k">Цагийн бүс</span><span class="v">${esc(s.timezone||'')}</span></div>
       <div class="kv"><span class="k">Серверийн цаг</span><span class="v">${esc(S.meta?S.meta.server_time:'')}</span></div>
       <div class="kv"><span class="k">Ажлын өдрүүд</span><span class="v">${esc(S.meta?S.meta.workdays_label:'')}</span></div>
-      <div class="kv"><span class="k">Хувилбар</span><span class="v">4.7.7</span></div>
+      <div class="kv"><span class="k">Хувилбар</span><span class="v">4.7.8</span></div>
     </div>
   </div>`;
 }

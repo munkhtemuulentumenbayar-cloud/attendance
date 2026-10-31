@@ -72,7 +72,7 @@ DEFAULT_SETTINGS = {
     "advance_window_end_day": "24",   # авансын хөдөлмөрийн цонх дуусах өдөр (11 → 24)
     "advance_amount": "1000000",      # авансын дүн (₮)
     "advance_min_full_days": "7",     # үүнээс ДЭЭШ бүтэн өдөр ажилласан бол аванс
-    "full_day_min_credit": "0.9",     # «бүтэн өдөр» = ээлжийн энэ хэсгээс дээш ажилласан
+    "full_day_min_credit": "0.8",     # «бүтэн өдөр» = ээлжийн энэ хэсгээс дээш ажилласан
     "advance_cap_earned": "1",        # аванс нь 11–24-нд ажилласан цалингаас хэтрэхгүй
     "advance_enabled": "1",
     "default_daily_rate": "80000",        # шинэ ажилтны үндсэн өдрийн цалин
@@ -451,6 +451,16 @@ def init_db(seed: bool = True) -> None:
             audit("system", "recalc_migrate", f"v4.7.4: {n} бүртгэл дахин тооцоологдлоо (хоцролт/эрт явалт нэг удаа)")
     except Exception as e:                                   # noqa
         print("calc migrate алдаа:", e)
+    # v4.7.6: «бүтэн өдөр» доод хэмжээ 90% → 80% (зөвхөн хуучин утга хэвээр байвал нэг удаа шинэчилнэ)
+    try:
+        with _lock, connect() as con:
+            mg = con.execute("SELECT value FROM settings WHERE key='full_day_v2'").fetchone()
+            if not mg:
+                con.execute("UPDATE settings SET value='0.8' WHERE key='full_day_min_credit' AND value='0.9'")
+                con.execute("INSERT INTO settings(key,value) VALUES('full_day_v2','1')")
+                con.commit()
+    except Exception as e:                                   # noqa
+        print("full_day migrate алдаа:", e)
     # v4.5: 25-ны авансын демо төлөв — шинэ сан дээр нэг удаа (тусдаа холболт)
     if seeded:
         try:
@@ -3229,11 +3239,11 @@ ADVANCE_STATUS_LABEL = {"paid": "Олгосон", "pending": "Хүлээгдэж
 ADVANCE_STATUS_COLOR = {"paid": "green", "pending": "orange",
                         "cancelled": "gray", "none": "gray"}
 def full_day_credit_min() -> float:
-    """«Бүтэн ажлын өдөр» гэж тооцох доод хэмжээ (анхдагч: ээлжийн 90%)."""
+    """«Бүтэн ажлын өдөр» гэж тооцох доод хэмжээ (анхдагч: ээлжийн 80%)."""
     try:
-        v = float(get_setting("full_day_min_credit") or 0.9)
+        v = float(get_setting("full_day_min_credit") or 0.8)
     except (TypeError, ValueError):
-        v = 0.9
+        v = 0.8
     return min(1.0, max(0.1, v))
 
 
