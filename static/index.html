@@ -1120,7 +1120,22 @@ function empLoginForm(){
     <div class="field"><label class="f">ПИН код</label>
       <input type="password" id="empPin" placeholder="4 оронтой ПИН" maxlength="10" required></div>
     <button class="btn primary" style="width:100%;justify-content:center;padding:12px" type="submit">Нэвтрэх</button>
+    <div class="small" style="text-align:center;margin-top:12px">${S.meta&&S.meta.contact_info?'Холбоо барих: '+esc(S.meta.contact_info):''}</div>
+    <details style="margin-top:12px"><summary style="cursor:pointer;text-align:center;color:var(--navy)">ПИН мартсан эсвэл бүртгүүлээгүй юу?</summary>
+      <div style="margin-top:10px">
+        <div class="field"><label class="f">Ажилтны код</label><input type="text" id="prCode" placeholder="Жишээ: EMP001"></div>
+        <div class="field"><label class="f">Овог нэр</label><input type="text" id="prName"></div>
+        <button type="button" class="btn" style="width:100%;justify-content:center" onclick="pinResetRequest()">Админд хүсэлт илгээх</button>
+      </div></details>
   </form>`;
+}
+async function pinResetRequest(){
+  const code = ($('#prCode')?.value||'').trim(), name = ($('#prName')?.value||'').trim();
+  if(!code || !name){ toast('Ажилтны кодоо болон овог нэрээ бичнэ үү','err'); return; }
+  try{
+    const r = await api('/api/auth/pin-reset-request', {method:'POST', body:{code, full_name:name}});
+    toast(r.message || 'Хүсэлт илгээгдлээ. Админ тантай холбогдоно.', 'ok');
+  }catch(e){ toast(e.message,'err'); }
 }
 function adminLoginForm(){
   return `<form id="adminLoginForm" autocomplete="off">
@@ -2676,6 +2691,7 @@ function adminConfig(){
       <div class="sep"></div>
       <h3>Байгууллага</h3>
       <div class="field"><label class="f">Байгууллагын нэр</label><input type="text" id="cfgCompany" value="${esc(s.company_name||'')}"></div>
+      <div class="field"><label class="f">Холбоо барих мэдээлэл (нэвтрэх хуудсанд харагдана)</label><input type="text" id="cfgContact" value="${esc(s.contact_info||'')}" placeholder="Жишээ: Утас 9900-0000"></div>
       <div class="grid" style="grid-template-columns:1fr 1fr;gap:12px">
         <div class="field"><label class="f">Цагийн бүс</label><input type="text" id="cfgTz" value="${esc(s.timezone||'Asia/Ulaanbaatar')}"></div>
         <div class="field"><label class="f">Админ нэвтрэх нэр</label><input type="text" id="cfgAdmUser" value="${esc(s.admin_user||'admin')}"></div>
@@ -2988,7 +3004,7 @@ async function saveSettings(){
     notify_end: $('#cfgNotifyEnd') && $('#cfgNotifyEnd').checked ? '1':'0',
     notify_missed_minutes: $('#cfgNotifyMins') ? $('#cfgNotifyMins').value : undefined,
     auto_absent: $('#cfgAutoAbsent') && $('#cfgAutoAbsent').checked ? '1':'0',
-    company_name: $('#cfgCompany').value, timezone: $('#cfgTz').value,
+    company_name: $('#cfgCompany').value, contact_info: $('#cfgContact') ? $('#cfgContact').value : undefined, timezone: $('#cfgTz').value,
     admin_user: $('#cfgAdmUser').value,
     workdays: $$('.wd-chk').filter(c=>c.checked).map(c=>c.value).join(',') || '1,2,3,4,5',
     geofence_enabled: $('#cfgGeoOn') && $('#cfgGeoOn').checked ? '1':'0',
