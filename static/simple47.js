@@ -50,6 +50,7 @@ function simpleEmployeeView(){
     <div class="simple-status ${st==='working'?'working':(st==='done'?'done':'')}">${esc(text)}</div>
     ${late ? `<div class="simple-note warn">⚠ Өнөөдөр ${late} минут хоцорсон. Маргааш цагтаа ирээрэй.</div>` : ''}
     <div class="simple-times">Ажлын цаг: <b>${esc(d.schedule.start)}</b> – <b>${esc(d.schedule.end)}</b></div>
+    ${simpleSiteCard(d)}
     <div class="simple-clock">
       <button class="simple-big in" id="btnIn" ${canIn?'':'disabled'}><span class="emo">🟢</span>АЖИЛД<br>ОРОХ</button>
       <button class="simple-big out" id="btnOut" ${canOut?'':'disabled'}><span class="emo">🔴</span>АЖЛААС<br>ГАРАХ</button>
@@ -85,8 +86,46 @@ function simpleClassic(on){
 function simpleMoney(){
   const o = modal(`<h3>💰 Миний цалин</h3>
     <div class="elder-wrap" style="padding:0;max-width:none">${typeof myPayHTML==='function'?myPayHTML():''}</div>
+    <div id="minuteBox" style="margin-top:12px"><div class="small">Минутын тооцоо ачаалж байна…</div></div>
     <div class="actions"><button class="btn primary" onclick="closeModal()">Хаах</button></div>`);
+  loadMinuteImpact();
   return o;
+}
+/* v4.7.4: минут бүрийн цалингийн нөлөө (хоцрол, эрт явалт, ирээгүй) */
+async function loadMinuteImpact(){
+  const box = document.getElementById('minuteBox'); if(!box) return;
+  try{
+    const m = await api('/api/employee/minute-impact?month='+todayISO().slice(0,7));
+    box.innerHTML = minuteImpactHTML(m);
+  }catch(e){ box.innerHTML = `<div class="small">${esc(e.message)}</div>`; }
+}
+function minuteImpactHTML(m){
+  const f = v => Number(v||0).toLocaleString();
+  const t = m.totals || {};
+  const rows = (m.days||[]).map(d => `<tr>
+      <td>${esc(d.date.slice(5))}</td><td>${esc(d.kind)}${d.shift==='night'?' (шөнө)':''}</td>
+      <td style="text-align:right">${d.late_minutes||''}</td><td style="text-align:right">${d.early_minutes||''}</td>
+      <td style="text-align:right">${d.other_minutes||''}</td>
+      <td style="text-align:right"><b>${d.cut_minutes}</b></td><td style="text-align:right;color:#b91c1c"><b>−${f(d.cut_amount)}₮</b></td></tr>`).join('');
+  return `<div class="simple-site" style="border-color:#2563eb">
+    <div style="font-size:17px;font-weight:800;margin-bottom:6px">⏱ Минут бүр цалинд хэрхэн нөлөөлөх вэ</div>
+    <div class="simple-note" style="background:#eff6ff;border-color:#2563eb">
+      Өдрийн ээлж: <b>1 минут = ${f(m.per_minute_day)}₮</b> · Шөнийн ээлж: <b>1 минут = ${f(m.per_minute_night)}₮</b><br>
+      Хоцрох <b>10 минут</b> → <b style="color:#b91c1c">−${f(Math.round(10*m.late_minute_cost))}₮</b><br>
+      Эрт гарах <b>30 минут</b> → <b style="color:#b91c1c">−${f(Math.round(30*m.late_minute_cost))}₮</b><br>
+      Бүтэн өдөр ирээгүй → <b style="color:#b91c1c">−${f(m.absent_day_cost)}₮</b>
+    </div>
+    <div class="small" style="margin:8px 0 4px">Энэ сарын хасалт (өдөр бүрээр):</div>
+    ${rows ? `<div style="overflow-x:auto"><table style="width:100%;font-size:14px;border-collapse:collapse">
+      <thead><tr style="background:#f1f5f9"><th style="text-align:left">Өдөр</th><th style="text-align:left">Төрөл</th>
+      <th>Хоцор</th><th>Эрт</th><th>Бусад</th><th>Мин</th><th style="text-align:right">₮</th></tr></thead>
+      <tbody>${rows}</tbody>
+      <tfoot><tr style="border-top:2px solid #334155"><td colspan="5"><b>Нийт</b></td><td style="text-align:right"><b>${t.cut_minutes||0}</b></td>
+      <td style="text-align:right;color:#b91c1c"><b>−${f(t.cut_amount)}₮</b></td></tr></tfoot></table></div>`
+      : `<div class="small">Энэ сард хоцролт, эрт явалт, ирээгүй өдөр алга. 👍</div>`}
+    <div class="small" style="margin-top:8px">${esc(m.note||'')}</div>
+    <div class="small">Хоцор = хоцорсон минут · Эрт = эрт гарсан минут · Бусад = бүртгэлгүй эсвэл ирээгүй минут.</div>
+  </div>`;
 }
 
 async function simpleBonus(){
@@ -166,4 +205,96 @@ function simpleAdminClassic(on){
   S.adminClassic = !!on; S.simpleTab = null;
   localStorage.setItem('att_admin_classic', on ? '1' : '0');
   render();
+}
+
+/* ===== v4.7.4: ажлын байрны хүрээ + миний байрлал (зургаар) ===== */
+function geoDistM(a, b){                       // хоёр цэгийн зай (м) — сервертэй ижил томьёо (haversine)
+  const R = 6371000, t = x => x * Math.PI / 180;
+  const dLat = t(b.lat - a.lat), dLng = t(b.lng - a.lng);
+  const h = Math.sin(dLat/2)**2 + Math.cos(t(a.lat)) * Math.cos(t(b.lat)) * Math.sin(dLng/2)**2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+function siteHasCoords(g){ return !!g && g.lat!=null && g.lng!=null && g.mode!=='off' && g.source!=='off'; }
+/* Схем зураг: ногоон тойрог = ажлын байрны хүрээ, цэг = таны байрлал (хойд = дээш) */
+function siteMapSVG(g, me){
+  const W = 300, c = 150, r = Number(g.radius_m) || 300;
+  let dist = null, px = null, py = null;
+  if (me) {
+    dist = geoDistM({lat:g.lat, lng:g.lng}, me);
+    const dy = (me.lat - g.lat) * 110574, dx = (me.lng - g.lng) * 111320 * Math.cos(g.lat * Math.PI/180);
+    const ext = Math.max(r * 1.5, dist * 1.25, 40), k = (c - 30) / ext;
+    px = c + dx * k; py = c - dy * k;
+    var kk = k;
+  } else { var kk = (c - 30) / Math.max(r * 1.5, 40); }
+  const inside = dist !== null && dist <= r;
+  const col = dist === null ? '#2563eb' : (inside ? '#16a34a' : '#dc2626');
+  return `<svg viewBox="0 0 ${W} ${W}" width="100%" style="max-width:300px;display:block;margin:6px auto;background:#f8fafc;border:1px solid #cbd5e1;border-radius:14px">
+    <circle cx="${c}" cy="${c}" r="${r*kk}" fill="rgba(22,163,74,.13)" stroke="#16a34a" stroke-width="2" stroke-dasharray="6 4"/>
+    <text x="${c}" y="${c + r*kk + 16}" text-anchor="middle" font-size="13" fill="#166534" font-weight="700">хүрээ ${Math.round(r)} м (ногоон тойрог)</text>
+    ${me ? `<line x1="${c}" y1="${c}" x2="${px}" y2="${py}" stroke="${col}" stroke-width="2" stroke-dasharray="4 3"/>` : ''}
+    <circle cx="${c}" cy="${c}" r="9" fill="#1d4ed8" stroke="#fff" stroke-width="2"/>
+    <text x="${c}" y="${c+26}" text-anchor="middle" font-size="12" fill="#1e3a8a" font-weight="700">Ажлын байр</text>
+    ${me ? `<circle cx="${px}" cy="${py}" r="10" fill="${col}" stroke="#fff" stroke-width="2"/>
+            <text x="${px+14}" y="${py+5}" font-size="14" font-weight="800" fill="${col}">Та</text>` : ''}
+    <text x="${W/2}" y="${W-8}" text-anchor="middle" font-size="11" fill="#64748b">⬆ Хойд</text></svg>`;
+}
+function siteStatusHTML(g, dist){
+  const r = Math.round(Number(g.radius_m) || 300);
+  if (dist === null) return '';
+  const d = Math.round(dist);
+  if (d <= r) return `<div class="simple-note" style="background:#ecfdf5;border-color:#16a34a">✅ Та ажлын байрны хүрээнд байна.<br><b>Зай ${d} м</b> · хүрээ ${r} м. Зураг авч бүртгэл хийж болно.</div>`;
+  return `<div class="simple-note" style="background:#fef2f2;border-color:#dc2626">❌ Та ажлын байрны хүрээнээс гадна байна.<br><b>Зай ${d} м</b> · хүрээ ${r} м → таны байрлал <b>${d - r} м</b> гадна.<br>Бүртгэл хийгдэхгүй. Хүрээн дотор ойртоод дахин оролдоно уу.</div>`;
+}
+function simpleSiteCard(d){
+  const g = d.geo || {};
+  const name = (d.site && d.site.name) || g.name || '—';
+  if (!siteHasCoords(g)) {
+    return `<div class="simple-site"><div class="small"><b>📍 Өнөөдрийн ажлын байр</b></div>
+      <div>${esc(name)}</div><div class="small">Хаалтгүй (байршлын хяналтгүй)</div></div>`;
+  }
+  return `<div class="simple-site">
+    <div class="small"><b>📍 Өнөөдрийн ажлын байр</b></div>
+    <div style="font-size:18px;font-weight:700">${esc(name)}</div>
+    <div class="small">Зөвшөөрөгдөх хүрээ: <b>${Math.round(g.radius_m)} м</b></div>
+    <div id="siteMapBox">${siteMapSVG(g, null)}</div>
+    <div id="siteStatus"><div class="small" style="text-align:center">Таны байрлалыг харахын тулд доорх товчийг дарна уу.</div></div>
+    <button class="simple-tile" style="width:100%;margin-top:8px" onclick="simpleShowMyDist()"><span class="emo">📍</span>Миний байрлалыг харах</button>
+  </div>`;
+}
+async function simpleShowMyDist(){
+  const g = (S.emp && S.emp.geo) || {};
+  const box = document.getElementById('siteMapBox'), st = document.getElementById('siteStatus');
+  if (st) st.innerHTML = `<div class="small" style="text-align:center">Байршил тодорхойлж байна…</div>`;
+  try{
+    const pos = await getPosition();
+    const me = {lat: pos.latitude, lng: pos.longitude};
+    const dist = geoDistM({lat:g.lat, lng:g.lng}, me);
+    if (box) box.innerHTML = siteMapSVG(g, me);
+    if (st) st.innerHTML = siteStatusHTML(g, dist) + `<div class="small" style="text-align:center">GPS нарийвчлал ±${Math.round(pos.accuracy||0)} м</div>`;
+  }catch(e){
+    if (st) st.innerHTML = `<div class="simple-note warn">${esc(e.message)}</div>`;
+  }
+}
+/* Зураг авахын өмнө: газрын зураг + зай → үргэлжлүүлэх эсэхийг сонгоно. Хүрээнээс гадна бол зураг авахгүй. */
+function geoPrePhoto(pos){
+  const g = (S.emp && S.emp.geo) || {};
+  if (!siteHasCoords(g) || !pos || pos.demo || pos.latitude==null) return Promise.resolve(true);
+  const me = {lat: pos.latitude, lng: pos.longitude};
+  const dist = geoDistM({lat:g.lat, lng:g.lng}, me);
+  const inside = dist <= Number(g.radius_m || 300);
+  return new Promise(resolve => {
+    const o = modal(`<h3>📍 Байрлал шалгах</h3>
+      ${siteMapSVG(g, me)}
+      ${siteStatusHTML(g, dist)}
+      <div class="actions">
+        <button class="btn" id="gpNo">Болих</button>
+        <button class="btn primary" id="gpYes" ${inside?'':'disabled'}>📷 Зураг авах</button>
+      </div>`);
+    let done = false;
+    const finish = v => { if (done) return; done = true; clearInterval(timer); resolve(v); };
+    // харагдах цонх өөр аргаар (×, гадна дарах) хаагдвал ч бүртгэл үргэлжлэхгүй
+    const timer = setInterval(() => { if (!document.body.contains(o)) finish(false); }, 300);
+    o.querySelector('#gpNo').onclick = () => { closeModal(); finish(false); };
+    if (inside) o.querySelector('#gpYes').onclick = () => { closeModal(); finish(true); };
+  });
 }

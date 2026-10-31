@@ -37,7 +37,7 @@ from core import (LEAVE_KINDS, DAY_STATUS_LABEL, LEAVE_STATUS_LABEL, add_leave, 
                   apply_flags, audit, check_geofence, clock_in, clock_out,
                   demo_clear_today, demo_seed_today, recalc_all,
                   create_api_key, create_employee, create_session, daily_records,
-                  employee_day_view, employee_history, get_employee, get_record,
+                  employee_day_view, employee_history, employee_minute_impact, get_employee, get_record,
                   get_setting, get_settings, init_db, list_api_keys, list_employees,
                   live_board, manual_record, month_report, now_local, recent_audit,
                   resolve_api_key, resolve_token, revoke_api_key, set_settings,
@@ -50,7 +50,7 @@ from core import (LEAVE_KINDS, DAY_STATUS_LABEL, LEAVE_STATUS_LABEL, add_leave, 
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 STATIC_DIR = os.path.join(BASE_DIR, "static")
-VERSION = "4.7.3"
+VERSION = "4.7.4"
 
 MIME = {".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8",
         ".js": "application/javascript; charset=utf-8", ".json": "application/json; charset=utf-8",
@@ -1093,6 +1093,15 @@ def r_emp_geo(h, ident, eid):
 
 
 # ---------------------------- Ажилтны өөрийн цалин (зөвхөн өөрт нь) ----------------------------
+@route("GET", "/api/employee/minute-impact")
+def r_emp_minute_impact(h, ident):
+    ident = require(h, "employee")
+    if not ident.get("employee_id"):
+        raise ApiError(403, "Энэ хэсэг зөвхөн ажилтанд зориулагдсан.")
+    month = _month_param(h)
+    return employee_minute_impact(int(ident["employee_id"]), month)
+
+
 @route("GET", "/api/employee/my-pay")
 def r_emp_my_pay(h, ident):
     ident = require(h, "employee")

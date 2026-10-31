@@ -64,6 +64,9 @@ DEFAULT_SETTINGS = {
     "currency": "₮",
     # --- v4.5: сард ХОЁР төлбөр ---
     "pay_day": "10",                  # үндсэн цалин олгох өдөр (11 → 10 үеийн цалин)
+    # --- Өгөгдлийн хадгалалт: зураг хамгийн багадаа 3 сар хадгалагдана ---
+    "photo_retention_months": "3",    # хэдэн сарын зургийг хадгалах (доод тал нь 3)
+    "backup_photo_mb": "1500",        # нөөц хуулбарт багтаах зургийн дээд хэмжээ (MB)
     "period_start_day": "11",         # цалингийн үе эхлэх өдөр (өмнөх сар)
     "advance_day": "25",              # аванс олгох өдөр
     "advance_window_end_day": "24",   # авансын хөдөлмөрийн цонх дуусах өдөр (11 → 24)
@@ -420,6 +423,19 @@ def init_db(seed: bool = True) -> None:
             _seed(con)
             seeded = True
         con.commit()
+    # v4.7.4: хоцролт/эрт явалтын тооцооны засвар — бүх бүртгэлийг нэг удаа дахин тооцоолно
+    try:
+        with connect() as con:
+            cv = con.execute("SELECT value FROM settings WHERE key='calc_version'").fetchone()
+        if not cv or cv["value"] != "4.7.4":
+            n = recalc_all()
+            with _lock, connect() as con:
+                con.execute("INSERT INTO settings(key,value) VALUES('calc_version','4.7.4') "
+                            "ON CONFLICT(key) DO UPDATE SET value=excluded.value")
+                con.commit()
+            audit("system", "recalc_migrate", f"v4.7.4: {n} бүртгэл дахин тооцоологдлоо (хоцролт/эрт явалт нэг удаа)")
+    except Exception as e:                                   # noqa
+        print("calc migrate алдаа:", e)
     # v4.5: 25-ны авансын демо төлөв — шинэ сан дээр нэг удаа (тусдаа холболт)
     if seeded:
         try:
@@ -457,6 +473,11 @@ def set_settings(values: dict) -> dict:
                 continue
             if k == "admin_password" and not str(v):
                 continue
+            if k == "photo_retention_months":
+                try:
+                    v = str(max(3, int(float(v))))
+                except (TypeError, ValueError):
+                    continue
             before = con.execute("SELECT value FROM settings WHERE key=?", (k,)).fetchone()
             if before and before["value"] == str(v):
                 continue
@@ -818,8 +839,14 @@ def recalc(record: dict, day: str | None = None, force_workday: bool = False,
     brk = lunch_deducted(cin, cout, day) if worked else 0
 
     net_worked = max(0, worked - brk)
-    deduct = min(net_worked, late + early) if net_worked else (late + early)
-    payable = max(0, net_worked - deduct)
+    # v4.7.4: хоцролт / эрт явалтын минут ажилласан цагт аль хэдийн тооцогдоогүй байдаг.
+    # Тиймээс дахин хасахгүй (нэг минут = нэг минут). Зөвхөн хөнгөлөх (grace) минутыг буцаана.
+    grace_credit = 0
+    if cin and workday:
+        ref = ns if shift == "night" else start
+        grace_credit = min(grace, max(0, _minutes_between(ref, cin)))
+    deduct = late + early                                   # тайланд харуулах хасалт (нэг удаа)
+    payable = max(0, net_worked + grace_credit)
 
     if shift == "night":
         # шөнийн ээлжид өдрийн хөдөлмөрийн хэмжээг бүтэн цонхоор тооцно (19:00–03:00 = 1 өдөр)
@@ -1928,6 +1955,68 @@ def employee_history(employee_id: int, month: str) -> dict:
     return {"month": month, "records": recs, "summary": tot}
 
 
+LATE_EARLY_FACTOR = 1  # v4.7.4: хоцролт/эрт явалтын минут бүр нэг удаа хасагдана
+
+
+def employee_minute_impact(employee_id: int, month: str) -> dict:
+    """
+    v4.7.4: Ажилтанд МИНУТ БҮРИЙН цалингийн нөлөөг харуулна.
+    Минутын үнэ = өдрийн цалин × ажлын хэлбэр ÷ ажлын цагийн цонхны минут
+      (өдрийн ээлж 600/540 мин, шөнийн ээлж 480 мин).
+    Нэг өдрийн хасагдсан минут = ажлын цонх − ажилласан төлбөртэй минут − зөвшөөрөгдсөн чөлөө.
+    Хасагдсан минутыг хоцролт / эрт явалт / бусад (бүртгэлгүй, ирээгүй) гэж хуваана.
+    """
+    with connect() as con:
+        emp = con.execute("SELECT * FROM employees WHERE id=?", (employee_id,)).fetchone()
+        rows = con.execute(
+            "SELECT * FROM attendance WHERE employee_id=? AND work_date LIKE ? ORDER BY work_date",
+            (employee_id, f"{month}-%")).fetchall()
+    if not emp:
+        return {"ok": False, "error": "Ажилтан олдсонгүй."}
+    daily = float(emp["daily_rate"] or 0)
+    days, tot = [], {"late_minutes": 0, "early_minutes": 0, "other_minutes": 0, "cut_minutes": 0, "cut_amount": 0}
+    for r in rows:
+        rec = dict(r)
+        if not int(rec.get("is_workday") or 0):
+            continue
+        day = rec["work_date"]
+        night = (rec.get("shift_type") or "day") == "night"
+        window = 480 if night else paid_minutes_per_day(day)
+        mult = float(rec.get("pay_multiplier") or 1.0)
+        rate = float(rec.get("day_rate_snapshot") or daily)
+        pm = rate * mult / window if window else 0.0
+        late = int(rec.get("late_minutes") or 0)
+        early = int(rec.get("early_minutes") or 0)
+        excused = int(rec.get("excused_minutes") or 0) if not night else 0
+        payable = int(rec.get("payable_minutes") or 0)
+        cut = max(0, window - payable - excused)
+        other = max(0, cut - late - early)
+        if cut <= 0 and late <= 0 and early <= 0:
+            continue
+        amount = round(cut * pm)
+        if not rec.get("clock_in"):
+            kind = "Ирээгүй"
+        elif not rec.get("clock_out"):
+            kind = "Гарсан бүртгэлгүй"
+        else:
+            kind = "Хоцрол / эрт явалт"
+        days.append({"date": day, "shift": "night" if night else "day", "kind": kind,
+                     "late_minutes": late, "early_minutes": early, "other_minutes": other,
+                     "cut_minutes": cut, "per_minute": round(pm, 1), "cut_amount": amount})
+        tot["late_minutes"] += late; tot["early_minutes"] += early
+        tot["other_minutes"] += other; tot["cut_minutes"] += cut; tot["cut_amount"] += amount
+    return {"ok": True, "month": month, "employee_id": employee_id, "daily_rate": daily,
+            "per_minute_day": round(daily / paid_minutes_per_day(today_str()), 1) if daily else 0.0,
+            "per_minute_night": round(daily / 480, 1) if daily else 0.0,
+            "window_day_minutes": paid_minutes_per_day(today_str()), "window_night_minutes": 480,
+            # Одоогийн тооцоолол: хоцролт/эрт явалтын минут бүр 2 удаа хасагдана (үнэ = 2 × минутын үнэ).
+            # Энэ тоо нь олгож буй цалинтай яг таарна. Хэрэв дүрмийг засвал LATE_EARLY_FACTOR-ийг 1 болгоно.
+            "late_minute_cost": round(daily / paid_minutes_per_day(today_str()) * LATE_EARLY_FACTOR, 1) if daily else 0.0,
+            "absent_day_cost": round(daily, 0),
+            "days": days, "totals": tot,
+            "note": "Чөлөө зөвшөөрөгдсөн бол тухайн минут хасагдахгүй. Гурван ажлын өдөр дараалан ирээгүй бол сарын цалингийн 10% нэмж хасагдана."}
+
+
 def aggregate(records: list[dict]) -> dict:
     present = [r for r in records if r.get("clock_in")]
     return {
@@ -2565,6 +2654,46 @@ def notify_admins(kind: str, title: str, body: str = "", meta: dict | None = Non
     return notify(None, kind, title, body, meta=meta, dedupe=dedupe)
 
 
+_last_purge_day = None
+
+
+def purge_old_photos(now: datetime | None = None) -> dict:
+    """
+    Хадгалалтын хугацаа (дор хаяж 3 сар) өнгөрсөн сарын ЗУРГИЙГ устгана.
+    Цаг бүртгэл, цалин, мэдэгдлийн мэдээлэл хэвээр үлдэнэ.
+    """
+    now = now or now_local()
+    months = max(3, int(float(get_setting("photo_retention_months", "3") or 3)))
+    cur = now.year * 12 + (now.month - 1)
+    cutoff = cur - months          # энэ сараас ӨМНӨХ бүх сарыг устгана
+    removed, freed = 0, 0
+    if not os.path.isdir(PHOTO_DIR):
+        return {"removed": 0, "freed_mb": 0.0, "keep_months": months}
+    for sub in sorted(os.listdir(PHOTO_DIR)):
+        m = re.match(r"^(\d{4})-(\d{2})$", sub)
+        if not m:
+            continue
+        idx = int(m.group(1)) * 12 + (int(m.group(2)) - 1)
+        if idx >= cutoff:
+            continue
+        folder = os.path.join(PHOTO_DIR, sub)
+        for fn in os.listdir(folder):
+            fp = os.path.join(folder, fn)
+            try:
+                freed += os.path.getsize(fp)
+                os.remove(fp)
+                removed += 1
+            except OSError:
+                pass
+        try:
+            os.rmdir(folder)
+        except OSError:
+            pass
+    if removed:
+        audit("system", "photo_purge", f"{removed} зураг устгагдлаа (сүүлийн {months} сар үлдлээ)")
+    return {"removed": removed, "freed_mb": round(freed / 1024 / 1024, 1), "keep_months": months}
+
+
 def scheduler_tick(now: datetime | None = None, force: bool = False) -> dict:
     """
     Цаг хугацааны мэдэгдэл:
@@ -2573,9 +2702,16 @@ def scheduler_tick(now: datetime | None = None, force: bool = False) -> dict:
       * дууссанаас хойш  → бүртгэлгүй бол «тасарсан» гэж бүртгэж мэдэгдэнэ
       * шөнийн ээлж 19:00 → хамгаалагчдад ээлжийн сануулга
     """
+    global _last_purge_day
     now = now or now_local()
     s = get_settings()
     day = now.date().isoformat()
+    if _last_purge_day != day:
+        _last_purge_day = day
+        try:
+            purge_old_photos(now)
+        except Exception as e:  # хадгалалт унахгүй
+            print("photo purge алдаа:", e)
     if not (is_workday(day) or force):
         return {"ok": True, "skipped": "амралтын өдөр"}
     start, end = schedule_window(day)
@@ -3341,7 +3477,7 @@ def reset_advance(employee_id: int, period_key: str, by: str = "admin") -> dict:
                        f"{b['payout_date']}-нд олгогдоно."}
 
 
-def make_backup_zip(max_photo_mb: int = 250) -> bytes:
+def make_backup_zip(max_photo_mb: int | None = None) -> bytes:
     """
     Бүрэн нөөц хуулбар (ZIP, санах ойд): SQLite-ийн тогтвортой хуулбар + бүх зураг.
     Render/VPS дээр shell-гүйгээр татаж авахад зориулав (админ эрхээр).
@@ -3359,21 +3495,26 @@ def make_backup_zip(max_photo_mb: int = 250) -> bytes:
         with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED, compresslevel=6) as z:
             z.write(snap, "attendance.db")
             total = 0
+            if max_photo_mb is None:
+                max_photo_mb = int(float(get_setting("backup_photo_mb", "1500") or 1500))
             limit = max_photo_mb * 1024 * 1024
             if os.path.isdir(PHOTO_DIR):
+                photo_files = []
                 for root, _dirs, files in os.walk(PHOTO_DIR):
-                    for fn in sorted(files):
-                        p = os.path.join(root, fn)
-                        try:
-                            sz = os.path.getsize(p)
-                        except OSError:
-                            continue
-                        if total + sz > limit:
-                            info["photos_skipped"] += 1
-                            continue
-                        z.write(p, os.path.relpath(p, DATA_DIR))
-                        total += sz
-                        info["photos_included"] += 1
+                    for fn in files:
+                        photo_files.append(os.path.join(root, fn))
+                # шинэ зургууд түрүүлж багтана (хэмжээ хэтэрвэл хуучин нь хасагдана)
+                for p in sorted(photo_files, reverse=True):
+                    try:
+                        sz = os.path.getsize(p)
+                    except OSError:
+                        continue
+                    if total + sz > limit:
+                        info["photos_skipped"] += 1
+                        continue
+                    z.write(p, os.path.relpath(p, DATA_DIR))
+                    total += sz
+                    info["photos_included"] += 1
             info["photos_mb"] = round(total / 1024 / 1024, 1)
             info["db_mb"] = round(db_bytes / 1024 / 1024, 2)
             z.writestr("BACKUP_INFO.txt",

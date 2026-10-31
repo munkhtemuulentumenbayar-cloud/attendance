@@ -2875,6 +2875,12 @@ async function doClock(type){
     // v3: эхлээд зураг авна (шаардлагатай бол)
     let photo = null;
     if (photoRequired()){
+      // v4.7.4: зураг авахын өмнө ажлын байрны хүрээ + таны зай (газрын зураг) харуулна
+      if (typeof geoPrePhoto === 'function'){
+        const pre = await getGeoWithDemo();
+        const okGo = await geoPrePhoto(pre);
+        if(!okGo){ await loadEmpToday(); return; }
+      }
       if(btn){ btn.disabled = false; btn.innerHTML = `<span class="ico">${ic('camera',30)}</span><span class="lbl">${label}</span><span class="hintl">Зураг авна уу</span>`; }
       photo = await capturePhoto(label + ' — зураг авах',
         'Ажлын байрандаа, нүүрээ харсан зураг авна уу. Зураг нь таны бүртгэлийн баталгаа.');
