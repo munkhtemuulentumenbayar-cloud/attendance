@@ -1635,6 +1635,46 @@ def create_employee(code, full_name, department, position, pin, daily_rate=None,
     return get_employee(eid)
 
 
+def delete_employee_permanently(eid: int, confirm_code: str) -> dict | None:
+    """
+    Ажилтныг БҮРМӨСӨН устгана: ирц, чөлөө, урьдчилгаа, зөрчил, сессийн мэдээлэл,
+    байрлал, зураг — бүгд. Буцаах боломжгүй. Кодыг заавал дахин бичүүлнэ.
+    """
+    with _lock, connect() as con:
+        emp = con.execute("SELECT id, code, full_name FROM employees WHERE id=?", (eid,)).fetchone()
+        if not emp:
+            return None
+        if (confirm_code or "").strip().lower() != str(emp["code"]).strip().lower():
+            raise ValueError("Ажилтны кодыг буруу бичлээ. Устгаагүй.")
+        photos = [r[0] for r in con.execute(
+            "SELECT in_photo FROM attendance WHERE employee_id=? AND in_photo IS NOT NULL "
+            "UNION SELECT out_photo FROM attendance WHERE employee_id=? AND out_photo IS NOT NULL",
+            (eid, eid)).fetchall()]
+        n_att = con.execute("SELECT COUNT(*) FROM attendance WHERE employee_id=?", (eid,)).fetchone()[0]
+        # Foreign key-гүй хүснэгтүүдийг гараар цэвэрлэнэ
+        con.execute("DELETE FROM sessions WHERE employee_id=?", (eid,))
+        con.execute("DELETE FROM broadcast_reads WHERE employee_id=?", (eid,))
+        con.execute("DELETE FROM notifications WHERE employee_id=?", (eid,))
+        ensure_live_table(con)
+        con.execute("DELETE FROM live_positions WHERE employee_id=?", (eid,))
+        # Бусад хүснэгт (attendance, leaves, advances, ...) ON DELETE CASCADE-ээр устна
+        con.execute("DELETE FROM employees WHERE id=?", (eid,))
+        con.commit()
+    removed = 0
+    base = os.path.normpath(PHOTO_DIR) + os.sep
+    for rel in photos:
+        fp = os.path.normpath(os.path.join(DATA_DIR, rel))
+        if fp.startswith(base) and os.path.isfile(fp):
+            try:
+                os.remove(fp)
+                removed += 1
+            except OSError:
+                pass
+    audit("admin", "employee_delete",
+          f"{emp['code']} {emp['full_name']} бүрмөсөн устгагдлаа ({n_att} ирцийн бүртгэл, {removed} зураг)")
+    return {"code": emp["code"], "full_name": emp["full_name"], "records": n_att, "photos": removed}
+
+
 def update_employee(eid: int, fields: dict) -> dict | None:
     allowed = {"code", "full_name", "department", "position", "pin", "active",
                "daily_rate", "night_role", "site_id",

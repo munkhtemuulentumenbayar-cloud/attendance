@@ -36,7 +36,7 @@ from core import (LEAVE_KINDS, DAY_STATUS_LABEL, LEAVE_STATUS_LABEL, add_leave, 
                   night_role_label, set_extra_hours, update_site,
                   apply_flags, audit, check_geofence, clock_in, clock_out,
                   demo_clear_today, demo_seed_today, recalc_all,
-                  create_api_key, create_employee, create_session, daily_records,
+                  create_api_key, create_employee, delete_employee_permanently, create_session, daily_records,
                   employee_day_view, employee_history, employee_minute_impact, get_employee, get_record,
                   get_setting, get_settings, init_db, list_api_keys, list_employees,
                   live_board, manual_record, month_report, now_local, recent_audit,
@@ -368,6 +368,19 @@ def r_emp_update(h, ident, eid):
     if not emp:
         raise ApiError(404, "Ажилтан олдсонгүй.")
     return {"ok": True, "employee": emp, "message": "Ажилтны мэдээлэл шинэчлэгдлээ."}
+
+
+@route("DELETE", "/api/admin/employees/{eid}")
+def r_emp_delete(h, ident, eid):
+    require(h, "admin")
+    try:
+        res = delete_employee_permanently(int(eid), str((h.body or {}).get("confirm_code") or ""))
+    except ValueError as e:
+        raise ApiError(400, str(e))
+    if not res:
+        raise ApiError(404, "Ажилтан олдсонгүй.")
+    return {"ok": True, "deleted": res,
+            "message": f"{res['code']} {res['full_name']} бүрмөсөн устгагдлаа."}
 
 
 @route("PUT", "/api/admin/employees/{eid}/geofence")

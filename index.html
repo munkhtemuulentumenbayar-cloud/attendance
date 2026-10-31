@@ -69,6 +69,7 @@ header.topbar .who b{font-size:14.5px}
 .card h3{margin:0 0 10px;font-size:15.5px;color:var(--navy)}
 .card .sub{color:var(--muted);font-size:13px;margin-bottom:14px}
 .grid{display:grid;gap:14px}
+.grid>*{min-width:0}
 .g2{grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
 .g3{grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
 .g4{grid-template-columns:repeat(auto-fit,minmax(190px,1fr))}
@@ -720,10 +721,72 @@ function extraHTML(){
 async function loadNotifs(){
   try{
     const admin = S.me && S.me.role==='admin';
-    S.notifs = await api((admin?'/api/admin/notifications?limit=40':'/api/employee/notifications?limit=30'));
+    if(admin){
+      S.notifs = await api('/api/admin/notifications?limit=40');
+      try{ const bc = await api('/api/admin/broadcasts'); S.notifs.broadcasts = bc.broadcasts||[]; }catch(e){}
+    } else {
+      S.notifs = await api('/api/employee/notifications?limit=30');
+    }
+    const cur = S.notifs.unread||0, prev = S.lastUnread;
+    if(prev!=null && cur>prev && S.me){
+      playNotifySound();
+      if(!admin) toast('Шинэ мэдэгдэл ирлээ. Хонх дээр дарж харна уу.','ok','🔔 Мэдэгдэл');
+    }
+    S.lastUnread = cur;
     const b = $('#notifBadge');
     if(b){ b.textContent = S.notifs.unread||''; b.style.display = (S.notifs.unread? 'inline-flex':'none'); }
   }catch(e){}
+}
+// Дуут мэдэгдэл: браузер зөвхөн хэрэглэгчийн дарсны дараа дуу тоглуулдаг тул анхны даралтаар идэвхжүүлнэ
+let __ac = null;
+function unlockAudio(){
+  try{
+    if(!__ac){ const C = window.AudioContext || window.webkitAudioContext; if(!C) return; __ac = new C(); }
+    if(__ac.state === 'suspended') __ac.resume();
+  }catch(e){}
+}
+['pointerdown','keydown','touchstart'].forEach(ev => document.addEventListener(ev, unlockAudio, {passive:true}));
+function playNotifySound(){
+  try{
+    if(__ac && __ac.state === 'running'){
+      const t0 = __ac.currentTime;
+      [[880, 0], [1175, 0.18]].forEach(([f, dt]) => {
+        const o = __ac.createOscillator(), g = __ac.createGain();
+        o.type = 'sine'; o.frequency.value = f;
+        o.connect(g); g.connect(__ac.destination);
+        g.gain.setValueAtTime(0.0001, t0 + dt);
+        g.gain.exponentialRampToValueAtTime(0.35, t0 + dt + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.0001, t0 + dt + 0.3);
+        o.start(t0 + dt); o.stop(t0 + dt + 0.32);
+      });
+    }
+  }catch(e){}
+  try{ if(navigator.vibrate) navigator.vibrate([200, 100, 200]); }catch(e){}
+}
+// Шинэ мэдэгдлийг 30 секунд тутам шалгана (ажилтан, захирал хоёулд)
+if(!window.__notifPoll){ window.__notifPoll = setInterval(()=>{ if(S.me && S.view!=='login' && !S.modalOpen) loadNotifs(); if(S.me && S.me.role==='employee' && typeof startPositionPing==='function') startPositionPing(); }, 30000); }
+
+// Захирал: бүх ажилчдад мэдэгдэл илгээх маягт
+function broadcastFormOpen(){
+  modal(`<h3 style="margin:0">📢 Бүгдэд мэдэгдэл илгээх</h3>
+    <div class="sub" style="margin:4px 0 12px">Бүх идэвхтэй ажилчин энэ мэдэгдлийг апп дээрх хонхноосоо харна.</div>
+    <div class="field"><label class="f">Төрөл</label><select id="bcCat">
+      <option value="news">Мэдээ</option><option value="vacation">Амралт, чөлөө</option>
+      <option value="internal">Дотоод мэдээ</option><option value="other">Бусад</option></select></div>
+    <div class="field"><label class="f">Гарчиг (жишээ: Маргааш ажил эхлэх цаг өөрчлөгдлөө)</label><input id="bcTitle" maxlength="120"></div>
+    <div class="field"><label class="f">Дэлгэрэнгүй</label><textarea id="bcBody" rows="5" maxlength="2000"></textarea></div>
+    <div class="row" style="gap:8px"><button class="btn primary" id="bcSend">📢 Илгээх</button><button class="btn" data-act="modal-close">Болих</button></div>`);
+  const sb = document.getElementById('bcSend');
+  if(sb) sb.onclick = async ()=>{
+    const title = (($('#bcTitle')||{}).value||'').trim();
+    if(!title){ toast('Гарчиг бичнэ үү.','warn'); return; }
+    try{
+      const r = await api('/api/admin/broadcast',{method:'POST',body:{category:$('#bcCat').value, title, body:(($('#bcBody')||{}).value||'').trim()}});
+      closeModal();
+      toast(`Мэдэгдэл ${r.recipients} ажилчинд илгээгдлээ.`,'ok','📢 Илгээлээ');
+      await loadNotifs();
+    }catch(e){ toast(e.message,'err'); }
+  };
 }
 
 function notifPanelHTML(){
@@ -733,8 +796,16 @@ function notifPanelHTML(){
                 night:'moon', info:'check', leave_request:'calendar', leave_approved:'check',
                 leave_rejected:'ban', leave_cancel:'ban', leave_pending:'alert',
                 shift_unclosed:'alert', no_clockout:'alert'};
+  const bc = (S.notifs&&S.notifs.broadcasts)||[];
+  const bcHTML = bc.length ? `<div class="small" style="font-weight:700;margin:6px 0">📢 Бүгдэд мэдэгдэл${admin?' (илгээсэн)':''}</div>` +
+    bc.slice(0,15).map(x=>`<div class="notif ${(!admin && !x.read_at)?'unread':''}"><span class="ico">${ic('bell',18)}</span>
+      <div style="flex:1"><span class="pill">${esc(x.label)}</span> <b>${esc(x.title)}</b>
+      ${x.body?`<div class="small">${esc(x.body)}</div>`:''}
+      <div class="small" style="color:#94a3b8">${esc(x.created_at)}</div></div></div>`).join('') : '';
   return `<h3 style="margin:0">${ic('bell')} Мэдэгдэл ${S.notifs&&S.notifs.unread?`<span class="pill red">${S.notifs.unread} шинэ</span>`:''}</h3>
     <div class="sub" style="margin:4px 0 10px">Ажил эхлэх/дуусах, чөлөөний хүсэлт, ирээгүй цагийн мэдэгдэл.</div>
+    ${admin?`<button class="btn primary" data-act="bc-new" style="margin-bottom:10px">📢 Бүгдэд мэдэгдэл илгээх</button>`:''}
+    ${bcHTML}
     ${n.length?`<div style="max-height:56vh;overflow:auto">${n.map(x=>{
       let meta = {}; try{ meta = JSON.parse(x.meta||'{}'); }catch(e){}
       const actionable = admin && (x.kind==='leave_request' || x.kind==='leave_pending') && meta.leave_id;
@@ -1037,7 +1108,7 @@ function loginView(){
       ${(!isStandalone()) ? `<div style="text-align:center;margin-top:14px">
         <button class="btn small" data-act="install">${ic('download')} 📲 Утсанд суулгах заавар</button></div>` : ''}
       <div class="footer-note" style="margin-top:18px">
-        Техникийн дэмжлэг: <span class="mono">/api/health</span> · Хувилбар 4.7.1
+        Техникийн дэмжлэг: <span class="mono">/api/health</span> · Хувилбар 4.8.0
       </div>
     </div></div></div>`;
 }
@@ -1049,12 +1120,6 @@ function empLoginForm(){
     <div class="field"><label class="f">ПИН код</label>
       <input type="password" id="empPin" placeholder="4 оронтой ПИН" maxlength="10" required></div>
     <button class="btn primary" style="width:100%;justify-content:center;padding:12px" type="submit">Нэвтрэх</button>
-    <div class="demo-box" style="margin-top:16px">
-      <b>Демо ажилтнууд:</b> EMP001 … EMP012 — ПИН код <b>1234</b>
-      <div class="chiprow">
-        ${['EMP001','EMP002','EMP005','EMP008'].map(c=>`<button type="button" class="chip" data-act="fill" data-code="${c}">${c}</button>`).join('')}
-      </div>
-    </div>
   </form>`;
 }
 function adminLoginForm(){
@@ -1063,17 +1128,15 @@ function adminLoginForm(){
     <div class="field"><label class="f">Хэрэглэгчийн нэр</label>
       <input type="text" id="admUser" value="admin" required></div>
     <div class="field"><label class="f">Нууц үг</label>
-      <input type="password" id="admPass" value="admin123" required></div>
+      <input type="password" id="admPass" required></div>
     <button class="btn primary" style="width:100%;justify-content:center;padding:12px" type="submit">Нэвтрэх</button>
-    <div class="demo-box" style="margin-top:16px">
-      <b>Демо эрх:</b> admin / admin123 — Тохиргоо → Нууц үг солих хэсгээс солино уу.
-    </div>
   </form>`;
 }
 
 /* ---------------------------- Ажилтны самбар ---------------------------- */
 function employeeView(){
   const d = S.emp;
+  if (!S.classic && localStorage.getItem('att_classic')!=='1' && typeof simpleEmployeeView==='function') return simpleEmployeeView();   // v4.7.2
   if(!d) return `<div class="wrap"><div class="card">Уншиж байна…</div></div>`;
   const r = d.record, emp = S.me && S.me.employee ? S.me.employee : {full_name:'',position:'',department:'',code:''};
   const statusCode = d.status_code;
@@ -1081,6 +1144,7 @@ function employeeView(){
   const canIn = statusCode==='not_checked_in';
   const canOut = statusCode==='working';
   return `<div class="wrap">
+    <div class="no-print" style="margin:6px 0"><button class="btn" onclick="simpleClassic(false)">⬅ Энгийн хуудас руу буцах</button></div>
     ${printHead()}
     <div class="grid g2" style="align-items:start">
       <div class="grid" style="gap:14px">
@@ -1344,8 +1408,10 @@ function empHistoryHTML(h){
 /* ---------------------------- Удирдлагын самбар ---------------------------- */
 function adminView(){
   const b = S.board;
+  if (!S.adminClassic && typeof simpleAdminView==='function') return simpleAdminView();   // v4.7.3
   return `<div class="wrap">
     ${securityBanner()}
+    <div class="no-print" style="margin:6px 0"><button class="btn" onclick="simpleAdminClassic(false)">⬅ Энгийн хуудас руу буцах</button></div>
     <div class="tabs">
       ${[['board',`${ic('grid')} Шууд самбар`],
          ['pay',`${ic('wallet')} Цалин`],
@@ -1355,7 +1421,7 @@ function adminView(){
          ['site',`${ic('pin')} Ажлын байр`],
          ['month',`${ic('doc')} Сарын тайлан`],
          ['matrix',`${ic('grid')} Хүснэгт`],
-         ['emp',`${ic('users')} Ажилтнууд`],['geo',`${ic('compass')} Гео хаалт`],
+         ['emp',`${ic('users')} Ажилтнууд`],['geo',`${ic('compass')} Гео хаалт`],['live',`📍 Байршил`],
          ['photo',`${ic('camera')} Фото хяналт`],['cfg',`${ic('gear')} Тохиргоо`],['agent',`${ic('robot')} AI агент`]]
         .map(([k,l])=>`<button class="tab ${S.tab===k?'active':''}" data-act="tab" data-tab="${k}">${l}</button>`).join('')}
     </div>
@@ -1494,6 +1560,7 @@ function adminTabBody(){
     case 'matrix': return adminMatrix();
     case 'emp':    return adminEmployees();
     case 'geo':    return adminGeo();
+    case 'live':   return liveTabHTML();      // v4.8: ажилчдын амьд байршил
     case 'photo':  return adminPhoto();
     case 'cfg':    return adminConfig();
     default:       return adminAgent();
@@ -1554,7 +1621,7 @@ function adminTwoPay(){
     </div>
     <div class="sub" style="margin-top:10px">${ic('info',14)} Аванс авах нөхцөл:
       ${esc(cy.advance_window[0])} → ${esc(cy.advance_window[1])} хооронд <b>${r.min_full_days||7} хоногоос дээш</b> бүтэн өдөр
-      ажилласан байх (бүтэн өдөр = ээлжийн ${Math.round((r.min_credit||0.9)*100)}%-иас дээш).
+      ажилласан байх (бүтэн өдөр = ээлжийн ${Math.round((r.min_credit||0.8)*100)}%-иас дээш).
       Аванс авсан бол ${esc(cy.payout_date)}-ны үндсэн цалингаас хасагдана.
       ${r.cap_earned?'Аванс нь 11–24-нд ажилласан цалингаас хэтрэхгүй.':''}
       ${r.enabled?'':'<b style="color:#b91c1c">Авансын модуль одоогоор унтраалттай.</b>'}</div>
@@ -1632,7 +1699,7 @@ function advDetailHTML(eid){
     </div>
     ${row.cap_note?`<div class="alert amber" style="margin-top:10px"><span class="ico">${ic('alert',20)}</span><div>${esc(row.cap_note)}</div></div>`:''}
     <div class="small" style="margin-top:10px"><b>Бүтэн өдрүүд:</b> ${esc(full)}</div>
-    <div class="small" style="margin-top:4px">Бүтэн өдөр = тухайн ээлжийн ${Math.round((cy.rules?cy.rules.min_credit:0.9)*100)}%-иас дээш ажилласан
+    <div class="small" style="margin-top:4px">Бүтэн өдөр = тухайн ээлжийн ${Math.round((cy.rules?cy.rules.min_credit:0.8)*100)}%-иас дээш ажилласан
       (шөнийн ээлж мөн бүтэн өдөр). Аванс нь ${esc(cy.payout_date)}-ны үндсэн цалингаас хасагдана.</div>
     <div class="row" style="margin-top:12px">
       ${row.status!=='paid'
@@ -2683,7 +2750,7 @@ function adminConfig(){
       <div class="kv"><span class="k">Цагийн бүс</span><span class="v">${esc(s.timezone||'')}</span></div>
       <div class="kv"><span class="k">Серверийн цаг</span><span class="v">${esc(S.meta?S.meta.server_time:'')}</span></div>
       <div class="kv"><span class="k">Ажлын өдрүүд</span><span class="v">${esc(S.meta?S.meta.workdays_label:'')}</span></div>
-      <div class="kv"><span class="k">Хувилбар</span><span class="v">4.7.1</span></div>
+      <div class="kv"><span class="k">Хувилбар</span><span class="v">4.8.0</span></div>
     </div>
   </div>`;
 }
@@ -2796,6 +2863,9 @@ function employeeModal(emp){
     ${isNew?'':`<div class="field"><label class="f">Төлөв</label>
       <select id="eActive"><option value="1" ${e.active?'selected':''}>Идэвхтэй</option>
       <option value="0" ${!e.active?'selected':''}>Идэвхгүй</option></select></div>`}
+    ${isNew?'':`<div style="margin:14px 0 4px;padding-top:12px;border-top:1px dashed #fca5a5">
+      <button class="btn" style="color:#b91c1c;border-color:#fca5a5" data-act="emp-delete" data-id="${e.id}" data-code="${esc(e.code)}">Бүрмөсөн устгах</button>
+      <div class="small" style="margin-top:6px">Ирц, цалин, зураг бүгд устна. Буцаах боломжгүй. (Зөвхөн идэвхгүй болгохын тулд «Төлөв»-өө «Идэвхгүй» болгоно.)</div></div>`}
     <div class="actions"><button class="btn" data-act="modal-close">Болих</button>
       <button class="btn primary" data-act="emp-save" data-id="${e.id||''}">${ic('save')} Хадгалах</button></div>`);
   return o;
@@ -2870,6 +2940,12 @@ async function doClock(type){
     // v3: эхлээд зураг авна (шаардлагатай бол)
     let photo = null;
     if (photoRequired()){
+      // v4.7.4: зураг авахын өмнө ажлын байрны хүрээ + таны зай (газрын зураг) харуулна
+      if (typeof geoPrePhoto === 'function'){
+        const pre = await getGeoWithDemo();
+        const okGo = await geoPrePhoto(pre);
+        if(!okGo){ await loadEmpToday(); return; }
+      }
       if(btn){ btn.disabled = false; btn.innerHTML = `<span class="ico">${ic('camera',30)}</span><span class="lbl">${label}</span><span class="hintl">Зураг авна уу</span>`; }
       photo = await capturePhoto(label + ' — зураг авах',
         'Ажлын байрандаа, нүүрээ харсан зураг авна уу. Зураг нь таны бүртгэлийн баталгаа.');
@@ -3015,7 +3091,9 @@ function bind(){
       if(b) b.onclick = async ()=>{ try{
         const url = (S.me&&S.me.role==='admin')?'/api/admin/notifications/read':'/api/employee/notifications/read';
         await api(url,{method:'POST',body:{}});
-        toast('Мэдэгдэл уншсан гэж тэмдэглэгдлээ.','ok'); await loadNotifs(); closeModal(); }catch(e){ toast(e.message,'err'); } }; };
+        toast('Мэдэгдэл уншсан гэж тэмдэглэгдлээ.','ok'); await loadNotifs(); closeModal(); }catch(e){ toast(e.message,'err'); } };
+      const nb = document.querySelector('[data-act="bc-new"]');
+      if(nb) nb.onclick = ()=> broadcastFormOpen(); };
     if (act==='extra-start') el.onclick = async ()=>{
       const photo = await capturePhoto('Нэмэлт ажил эхлэх — зураг авах','Нэмэлт ажил эхэлж байгаа цагт зургаа авна уу.');
       if(!photo){ toast('Зураггүйгээр эхлүүлэх боломжгүй.','warn','Цуцлагдлаа'); return; }
@@ -3363,6 +3441,15 @@ function bind(){
     };
     if (act==='emp-new') el.onclick = ()=>employeeModal(null);
     if (act==='emp-edit') el.onclick = ()=>{ const e=(S.employees||[]).find(x=>String(x.id)===String(el.dataset.id)); employeeModal(e); };
+    if (act==='emp-delete') el.onclick = async ()=>{
+      const code = el.dataset.code;
+      const typed = prompt(`${code} ажилтныг БҮРМӨСӨН устгана. Ирц, цалин, зураг бүгд устна, буцаах боломжгүй.\n\nТасалбарлах бол ажилтны кодыг дахин бичнэ үү:`);
+      if (typed === null) return;
+      try{
+        const r = await api('/api/admin/employees/'+el.dataset.id, {method:'DELETE', body:{confirm_code: typed.trim()}});
+        toast(r.message,'ok'); closeModal(); await loadEmployees(); render();
+      }catch(e){ toast(e.message,'err'); }
+    };
     if (act==='emp-save') el.onclick = async ()=>{
       const id = el.dataset.id;
       try{
@@ -3541,6 +3628,7 @@ async function loadTabData(){
   else if (S.tab==='matrix') await loadMatrix(S.month);
   else if (S.tab==='emp') await loadEmployees();
   else if (S.tab==='geo'){ await loadSettingsOnly(); await loadGeoLog(); render(); }
+  else if (S.tab==='live'){ render(); await loadLiveBoard(); }   // v4.8
   else if (S.tab==='cfg'){ await loadSettingsOnly(); await loadAudit(); render(); }
   else if (S.tab==='photo'){ await loadPhotos(true); render(); }   // v3: Фото хяналт
   else if (S.tab==='agent'){ await loadKeys(); render(); }
@@ -3684,5 +3772,6 @@ window.addEventListener('keydown', e=>{ if(e.key==='Escape') closeModal(); });
 })();
 </script>
 <script src="/static/ops47.js"></script>
+<script src="/static/simple47.js"></script>
 </body>
 </html>
