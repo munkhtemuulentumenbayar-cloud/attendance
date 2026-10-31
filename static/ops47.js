@@ -161,3 +161,16 @@ async function opsIncDel(id){
   try{ await api('/api/admin/incidents/'+id+'/delete', {method:'POST', body:{}}); await loadOps(); render(); }
   catch(e){ toast(e.message,'err'); }
 }
+
+/* v4.7.1 — аюулгүй байдал & нөөц хуулбарын сануулга (админы дээд хэсэгт) */
+async function loadSecurity(){
+  try{ S.security = await api('/api/admin/security'); }catch(e){ S.security = null; }
+}
+function securityBanner(){
+  const sec = S.security;
+  if(!sec || sec.ok) return '';
+  return `<div class="card" style="margin-bottom:12px;border-left:4px solid #f59e0b;padding:12px 16px">
+    <b>Аюулгүй байдал: анхааруулга</b>
+    <ul style="margin:6px 0 0 18px;padding:0">${sec.issues.map(i=>`<li>${esc(i.text)} — <span class="small">${esc(i.action)}</span></li>`).join('')}</ul>
+  </div>`;
+}
