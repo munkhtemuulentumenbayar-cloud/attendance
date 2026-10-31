@@ -15,7 +15,7 @@ services:
     runtime: docker
     dockerfilePath: ./Dockerfile
     # бодит ашиглалт: starter (~$7/сар + диск)
-    plan: free
+    plan: starter
     # Монголд хамгийн ойр (эсвэл frankfurt)
     region: singapore
     healthCheckPath: /api/health
@@ -31,6 +31,9 @@ services:
         value: "1"
       - key: ATTENDANCE_DB
         value: /app/data/attendance.db
+      # Бодит ажилчид: демо өгөгдөл бүү үүсгэ
+      - key: ATTENDANCE_SEED
+        value: "0"
       # Claude API түлхүүр (сонголтоор — апп өөрөө шаарддаггүй).
       # Dashboard → Environment → Secret-ээр нэмнэ. Код/GitHub руу ХЭЗЭЭ Ч бичихгүй.
       # - key: ANTHROPIC_API_KEY
@@ -41,7 +44,7 @@ services:
 #  ⚠️  Дисктэй үйлчилгээг хэвтээ өргөтгөх (scale) БОЛОХГҮЙ — SQLite нэг
 #      instance-д зориулагдсан. Бүх өгөгдөл /app/data дотор байрлана.
 #
-#    disk:
-#      name: attendance-data
-#      mountPath: /app/data         # сан + зураг (data/photos) энд хадгалагдана
-#      sizeGB: 1                    # 1 GB ≈ 1–2 жилийн зураг (жижиг бригад)
+    disk:
+      name: attendance-data
+      mountPath: /app/data         # сан + зураг (data/photos) энд хадгалагдана
+      sizeGB: 1                    # 1 GB ≈ 1–2 жилийн зураг (жижиг бригад)

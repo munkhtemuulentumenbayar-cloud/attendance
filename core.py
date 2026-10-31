@@ -434,7 +434,8 @@ def init_db(seed: bool = True) -> None:
         for k, v in DEFAULT_SETTINGS.items():
             con.execute("INSERT OR IGNORE INTO settings(key, value) VALUES (?,?)", (k, v))
         n = con.execute("SELECT COUNT(*) c FROM employees").fetchone()["c"]
-        if seed and n == 0:
+        # ATTENDANCE_SEED=0 → бодит ашиглалт: демо ажилчид үүсгэхгүй
+        if seed and n == 0 and os.environ.get("ATTENDANCE_SEED", "1") != "0":
             _seed(con)
             seeded = True
         con.commit()
@@ -4801,16 +4802,16 @@ def security_status() -> dict:
 
 
 def backup_reminder(now: datetime, s: dict) -> bool:
-    """Долоо хоног тутам (Даваа гарагт) админд нөөц хуулбар татахыг сануулна."""
-    if now.isoweekday() != 1 or now.hour < 9:
+    """Сар бүрийн эхний даваа гарагт (09:00-ээс хойш) админд нөөц хуулбар татахыг сануулна."""
+    if now.isoweekday() != 1 or now.day > 7 or now.hour < 9:
         return False
-    week = now.strftime("%G-W%V")
+    month = now.strftime("%Y-%m")
     st = security_status()
     if not any(i["key"] == "backup" for i in st["issues"]):
         return False
-    r = notify_admins("backup", "Долоо хоногийн нөөц хуулбар",
+    r = notify_admins("backup", "Сарын нөөц хуулбар",
                       "Өгөгдлөө хадгалахын тулд Тохиргоо → Нөөц хуулбар татна уу "
-                      "(фото болон бүх бүртгэл орно).", dedupe=f"backup:{week}")
+                      "(фото болон бүх бүртгэл орно).", dedupe=f"backup:{month}")
     return not r.get("skipped")
 
 
