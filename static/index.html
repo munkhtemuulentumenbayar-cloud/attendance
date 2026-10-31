@@ -1037,7 +1037,7 @@ function loginView(){
       ${(!isStandalone()) ? `<div style="text-align:center;margin-top:14px">
         <button class="btn small" data-act="install">${ic('download')} 📲 Утсанд суулгах заавар</button></div>` : ''}
       <div class="footer-note" style="margin-top:18px">
-        Техникийн дэмжлэг: <span class="mono">/api/health</span> · Хувилбар 4.7.2
+        Техникийн дэмжлэг: <span class="mono">/api/health</span> · Хувилбар 4.7.3
       </div>
     </div></div></div>`;
 }
@@ -1346,8 +1346,10 @@ function empHistoryHTML(h){
 /* ---------------------------- Удирдлагын самбар ---------------------------- */
 function adminView(){
   const b = S.board;
+  if (!S.adminClassic && typeof simpleAdminView==='function') return simpleAdminView();   // v4.7.3
   return `<div class="wrap">
     ${securityBanner()}
+    <div class="no-print" style="margin:6px 0"><button class="btn" onclick="simpleAdminClassic(false)">⬅ Энгийн хуудас руу буцах</button></div>
     <div class="tabs">
       ${[['board',`${ic('grid')} Шууд самбар`],
          ['pay',`${ic('wallet')} Цалин`],
@@ -2685,7 +2687,7 @@ function adminConfig(){
       <div class="kv"><span class="k">Цагийн бүс</span><span class="v">${esc(s.timezone||'')}</span></div>
       <div class="kv"><span class="k">Серверийн цаг</span><span class="v">${esc(S.meta?S.meta.server_time:'')}</span></div>
       <div class="kv"><span class="k">Ажлын өдрүүд</span><span class="v">${esc(S.meta?S.meta.workdays_label:'')}</span></div>
-      <div class="kv"><span class="k">Хувилбар</span><span class="v">4.7.2</span></div>
+      <div class="kv"><span class="k">Хувилбар</span><span class="v">4.7.3</span></div>
     </div>
   </div>`;
 }

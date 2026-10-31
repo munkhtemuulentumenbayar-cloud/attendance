@@ -105,3 +105,65 @@ async function simpleBonus(){
     <div class="small">Сард бүх зүйл зөв байвал ажилласан өдөр бүрд бонус авна.</div>
     <div class="actions"><button class="btn primary" onclick="closeModal()">Хаах</button></div>`);
 }
+
+/* ---------- v4.7.3: Админ — энгийн горим (ахмад хүнд зориулсан нүүр хуудас) ---------- */
+(function(){
+  const css = `
+    .simple-admin{max-width:720px;margin:0 auto;padding:12px 14px 40px;font-size:18px;line-height:1.5}
+    .simple-admin h2{font-size:24px}
+    .simple-admin .tiles{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:12px 0}
+    .simple-admin .tile{min-height:120px;border:2px solid #cbd5e1;background:#fff;border-radius:18px;font-size:19px;font-weight:800;color:#0f172a;cursor:pointer;padding:10px}
+    .simple-admin .tile .emo{font-size:36px;display:block}
+    .simple-admin .tile.red{border-color:#fca5a5;background:#fef2f2}
+    .simple-admin .tile.green{border-color:#86efac;background:#f0fdf4}
+    .simple-admin .tile.blue{border-color:#93c5fd;background:#eff6ff}
+    .simple-admin .foot{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;margin-top:16px}
+    .simple-admin .btn{min-height:52px;font-size:17px}
+    .simple-admin .hint{color:#475569;font-size:16px;margin-top:6px}
+  `;
+  const st = document.createElement('style'); st.textContent = css; document.head.appendChild(st);
+  if (localStorage.getItem('att_admin_classic') === '1') S.adminClassic = true;
+})();
+
+function simpleAdminView(){
+  const sec = S.security && !S.security.ok ? securityBanner() : '';
+  if (S.simpleTab) {
+    return `<div class="simple-admin">
+      <div class="no-print" style="margin-bottom:8px"><button class="btn" onclick="simpleAdminHome()">⬅ Эхлэл рүү буцах</button></div>
+      <div id="tabBody">${adminTabBody()}</div>
+    </div>`;
+  }
+  const tile = (tab, emo, label, cls='', hint='') =>
+    `<button class="tile ${cls}" onclick="simpleAdminOpen('${tab}')"><span class="emo">${emo}</span>${label}${hint?`<div class="hint">${hint}</div>`:''}</button>`;
+  return `<div class="simple-admin">
+    ${sec}
+    <h2 style="margin:6px 0 0">Сайн байна уу, Админ</h2>
+    <div class="hint">Юу хийх вэ? Доорх товчийг дарна уу.</div>
+    <div class="tiles">
+      ${tile('board','📋','Өнөөдөр<br>хэн ажиллаж байгаа',"blue",'Ирсэн, ирээгүй')}
+      ${tile('ops','🌧','Ажил цуцлах',"red",'Цас, салхи, бороо')}
+      ${tile('ops','📍','Өөр байршилд<br>оноох',"",'Өдрөөр')}
+      ${tile('leave','🏖','Чөлөөний<br>хүсэлт',"green",'Батлах / татгалзах')}
+      ${tile('pay','💰','Цалин',"",'Сараар')}
+      ${tile('ops','🎁','Бонус ба<br>зөрчил',"",'Сар бүр')}
+      ${tile('emp','👷','Ажилтнууд',"",'Нэмэх, PIN солих')}
+      ${tile('cfg','⚙️','Тохиргоо',"",'Нууц үг, нөөц хуулбар')}
+    </div>
+    <div class="foot">
+      <button class="btn" data-act="notif">🔔 Мэдэгдэл</button>
+      <button class="btn" onclick="simpleAdminClassic(true)">📋 Бүх хуудас (дэлгэрэнгүй)</button>
+      <button class="btn" data-act="logout">Гарах</button>
+    </div>
+  </div>`;
+}
+
+function simpleAdminOpen(tab){
+  S.tab = tab; S.simpleTab = tab; render(); loadTabData();
+  window.scrollTo(0, 0);
+}
+function simpleAdminHome(){ S.simpleTab = null; render(); window.scrollTo(0, 0); }
+function simpleAdminClassic(on){
+  S.adminClassic = !!on; S.simpleTab = null;
+  localStorage.setItem('att_admin_classic', on ? '1' : '0');
+  render();
+}
