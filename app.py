@@ -50,7 +50,7 @@ from core import (LEAVE_KINDS, DAY_STATUS_LABEL, LEAVE_STATUS_LABEL, add_leave, 
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 STATIC_DIR = os.path.join(BASE_DIR, "static")
-VERSION = "4.7.5"
+VERSION = "4.7.7"
 
 MIME = {".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8",
         ".js": "application/javascript; charset=utf-8", ".json": "application/json; charset=utf-8",
@@ -1432,6 +1432,7 @@ def r_emp_notif(h, ident):
     if not eid:
         raise ApiError(403, "Энэ хэсэг зөвхөн ажилтанд зориулагдсан.")
     return {"notifications": list_notifications(eid, limit=int((h.query.get("limit") or ["30"])[0])),
+            "broadcasts": core.list_broadcasts(30, employee_id=eid),
             "unread": unread_count(eid)}
 
 
@@ -1441,6 +1442,8 @@ def r_emp_notif_read(h, ident):
     eid = int(ident["employee_id"]) if ident.get("employee_id") else None
     ids = h.body.get("ids")
     n = mark_notifications_read(ids, eid if not ids else None)
+    if not ids:
+        core.mark_broadcasts_read(eid)
     return {"ok": True, "marked": n, "unread": unread_count(eid)}
 
 
@@ -1491,6 +1494,23 @@ def r_admin_notif_read(h, ident):
     ids = (h.body or {}).get("ids")
     n = mark_notifications_read(ids, None)
     return {"ok": True, "marked": n, "unread": unread_count(None)}
+
+
+@route("POST", "/api/admin/broadcast")
+def r_admin_broadcast(h, ident):
+    """Бүх ажилчдад мэдэгдэл: мэдээ, амралт/чөлөө, дотоод мэдээ."""
+    require(h, "admin")
+    b = h.body or {}
+    res = core.create_broadcast(b.get("category", "other"), b.get("title", ""), b.get("body", ""), actor="admin")
+    if not res.get("ok"):
+        raise ApiError(400, res.get("error", "Илгээх боломжгүй."))
+    return res
+
+
+@route("GET", "/api/admin/broadcasts")
+def r_admin_broadcasts(h, ident):
+    require(h, "admin")
+    return {"broadcasts": core.list_broadcasts(30)}
 
 
 @route("POST", "/api/admin/notifications/tick")

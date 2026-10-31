@@ -721,10 +721,72 @@ function extraHTML(){
 async function loadNotifs(){
   try{
     const admin = S.me && S.me.role==='admin';
-    S.notifs = await api((admin?'/api/admin/notifications?limit=40':'/api/employee/notifications?limit=30'));
+    if(admin){
+      S.notifs = await api('/api/admin/notifications?limit=40');
+      try{ const bc = await api('/api/admin/broadcasts'); S.notifs.broadcasts = bc.broadcasts||[]; }catch(e){}
+    } else {
+      S.notifs = await api('/api/employee/notifications?limit=30');
+    }
+    const cur = S.notifs.unread||0, prev = S.lastUnread;
+    if(prev!=null && cur>prev && S.me){
+      playNotifySound();
+      if(!admin) toast('Шинэ мэдэгдэл ирлээ. Хонх дээр дарж харна уу.','ok','🔔 Мэдэгдэл');
+    }
+    S.lastUnread = cur;
     const b = $('#notifBadge');
     if(b){ b.textContent = S.notifs.unread||''; b.style.display = (S.notifs.unread? 'inline-flex':'none'); }
   }catch(e){}
+}
+// Дуут мэдэгдэл: браузер зөвхөн хэрэглэгчийн дарсны дараа дуу тоглуулдаг тул анхны даралтаар идэвхжүүлнэ
+let __ac = null;
+function unlockAudio(){
+  try{
+    if(!__ac){ const C = window.AudioContext || window.webkitAudioContext; if(!C) return; __ac = new C(); }
+    if(__ac.state === 'suspended') __ac.resume();
+  }catch(e){}
+}
+['pointerdown','keydown','touchstart'].forEach(ev => document.addEventListener(ev, unlockAudio, {passive:true}));
+function playNotifySound(){
+  try{
+    if(__ac && __ac.state === 'running'){
+      const t0 = __ac.currentTime;
+      [[880, 0], [1175, 0.18]].forEach(([f, dt]) => {
+        const o = __ac.createOscillator(), g = __ac.createGain();
+        o.type = 'sine'; o.frequency.value = f;
+        o.connect(g); g.connect(__ac.destination);
+        g.gain.setValueAtTime(0.0001, t0 + dt);
+        g.gain.exponentialRampToValueAtTime(0.35, t0 + dt + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.0001, t0 + dt + 0.3);
+        o.start(t0 + dt); o.stop(t0 + dt + 0.32);
+      });
+    }
+  }catch(e){}
+  try{ if(navigator.vibrate) navigator.vibrate([200, 100, 200]); }catch(e){}
+}
+// Шинэ мэдэгдлийг 30 секунд тутам шалгана (ажилтан, захирал хоёулд)
+if(!window.__notifPoll){ window.__notifPoll = setInterval(()=>{ if(S.me && S.view!=='login' && !S.modalOpen) loadNotifs(); }, 30000); }
+
+// Захирал: бүх ажилчдад мэдэгдэл илгээх маягт
+function broadcastFormOpen(){
+  modal(`<h3 style="margin:0">📢 Бүгдэд мэдэгдэл илгээх</h3>
+    <div class="sub" style="margin:4px 0 12px">Бүх идэвхтэй ажилчин энэ мэдэгдлийг апп дээрх хонхноосоо харна.</div>
+    <div class="field"><label class="f">Төрөл</label><select id="bcCat">
+      <option value="news">Мэдээ</option><option value="vacation">Амралт, чөлөө</option>
+      <option value="internal">Дотоод мэдээ</option><option value="other">Бусад</option></select></div>
+    <div class="field"><label class="f">Гарчиг (жишээ: Маргааш ажил эхлэх цаг өөрчлөгдлөө)</label><input id="bcTitle" maxlength="120"></div>
+    <div class="field"><label class="f">Дэлгэрэнгүй</label><textarea id="bcBody" rows="5" maxlength="2000"></textarea></div>
+    <div class="row" style="gap:8px"><button class="btn primary" id="bcSend">📢 Илгээх</button><button class="btn" data-act="modal-close">Болих</button></div>`);
+  const sb = document.getElementById('bcSend');
+  if(sb) sb.onclick = async ()=>{
+    const title = (($('#bcTitle')||{}).value||'').trim();
+    if(!title){ toast('Гарчиг бичнэ үү.','warn'); return; }
+    try{
+      const r = await api('/api/admin/broadcast',{method:'POST',body:{category:$('#bcCat').value, title, body:(($('#bcBody')||{}).value||'').trim()}});
+      closeModal();
+      toast(`Мэдэгдэл ${r.recipients} ажилчинд илгээгдлээ.`,'ok','📢 Илгээлээ');
+      await loadNotifs();
+    }catch(e){ toast(e.message,'err'); }
+  };
 }
 
 function notifPanelHTML(){
@@ -734,8 +796,16 @@ function notifPanelHTML(){
                 night:'moon', info:'check', leave_request:'calendar', leave_approved:'check',
                 leave_rejected:'ban', leave_cancel:'ban', leave_pending:'alert',
                 shift_unclosed:'alert', no_clockout:'alert'};
+  const bc = (S.notifs&&S.notifs.broadcasts)||[];
+  const bcHTML = bc.length ? `<div class="small" style="font-weight:700;margin:6px 0">📢 Бүгдэд мэдэгдэл${admin?' (илгээсэн)':''}</div>` +
+    bc.slice(0,15).map(x=>`<div class="notif ${(!admin && !x.read_at)?'unread':''}"><span class="ico">${ic('bell',18)}</span>
+      <div style="flex:1"><span class="pill">${esc(x.label)}</span> <b>${esc(x.title)}</b>
+      ${x.body?`<div class="small">${esc(x.body)}</div>`:''}
+      <div class="small" style="color:#94a3b8">${esc(x.created_at)}</div></div></div>`).join('') : '';
   return `<h3 style="margin:0">${ic('bell')} Мэдэгдэл ${S.notifs&&S.notifs.unread?`<span class="pill red">${S.notifs.unread} шинэ</span>`:''}</h3>
     <div class="sub" style="margin:4px 0 10px">Ажил эхлэх/дуусах, чөлөөний хүсэлт, ирээгүй цагийн мэдэгдэл.</div>
+    ${admin?`<button class="btn primary" data-act="bc-new" style="margin-bottom:10px">📢 Бүгдэд мэдэгдэл илгээх</button>`:''}
+    ${bcHTML}
     ${n.length?`<div style="max-height:56vh;overflow:auto">${n.map(x=>{
       let meta = {}; try{ meta = JSON.parse(x.meta||'{}'); }catch(e){}
       const actionable = admin && (x.kind==='leave_request' || x.kind==='leave_pending') && meta.leave_id;
@@ -1038,7 +1108,7 @@ function loginView(){
       ${(!isStandalone()) ? `<div style="text-align:center;margin-top:14px">
         <button class="btn small" data-act="install">${ic('download')} 📲 Утсанд суулгах заавар</button></div>` : ''}
       <div class="footer-note" style="margin-top:18px">
-        Техникийн дэмжлэг: <span class="mono">/api/health</span> · Хувилбар 4.7.3
+        Техникийн дэмжлэг: <span class="mono">/api/health</span> · Хувилбар 4.7.7
       </div>
     </div></div></div>`;
 }
@@ -2688,7 +2758,7 @@ function adminConfig(){
       <div class="kv"><span class="k">Цагийн бүс</span><span class="v">${esc(s.timezone||'')}</span></div>
       <div class="kv"><span class="k">Серверийн цаг</span><span class="v">${esc(S.meta?S.meta.server_time:'')}</span></div>
       <div class="kv"><span class="k">Ажлын өдрүүд</span><span class="v">${esc(S.meta?S.meta.workdays_label:'')}</span></div>
-      <div class="kv"><span class="k">Хувилбар</span><span class="v">4.7.3</span></div>
+      <div class="kv"><span class="k">Хувилбар</span><span class="v">4.7.7</span></div>
     </div>
   </div>`;
 }
@@ -3026,7 +3096,9 @@ function bind(){
       if(b) b.onclick = async ()=>{ try{
         const url = (S.me&&S.me.role==='admin')?'/api/admin/notifications/read':'/api/employee/notifications/read';
         await api(url,{method:'POST',body:{}});
-        toast('Мэдэгдэл уншсан гэж тэмдэглэгдлээ.','ok'); await loadNotifs(); closeModal(); }catch(e){ toast(e.message,'err'); } }; };
+        toast('Мэдэгдэл уншсан гэж тэмдэглэгдлээ.','ok'); await loadNotifs(); closeModal(); }catch(e){ toast(e.message,'err'); } };
+      const nb = document.querySelector('[data-act="bc-new"]');
+      if(nb) nb.onclick = ()=> broadcastFormOpen(); };
     if (act==='extra-start') el.onclick = async ()=>{
       const photo = await capturePhoto('Нэмэлт ажил эхлэх — зураг авах','Нэмэлт ажил эхэлж байгаа цагт зургаа авна уу.');
       if(!photo){ toast('Зураггүйгээр эхлүүлэх боломжгүй.','warn','Цуцлагдлаа'); return; }

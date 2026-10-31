@@ -91,6 +91,7 @@ DEFAULT_SETTINGS = {
     "notify_start": "1",                  # ажил эхлэхэд бүртгэлгүй бол сануулга
     "notify_end": "1",                    # ажил дуусахад гарах бүртгэлгүй бол сануулга
     "auto_absent": "1",                   # бүртгэлгүй бол «тасарсан» гэж бүртгэнэ
+    "notify_pre_minutes": "15",            # ажил эхлэх/дуусахаас өмнө сануулах минут (15 мин)
     "notify_missed_minutes": "15",
     "require_photo": "1",              # ажил эхлэх/дуусах, нэмэлт ажил — ЗУРАГ заавал (v3)
     "google_maps_api_key": "",         # v4.2: Google Maps JS API түлхүүр (ажлын байр зурагнаас сонгох)
@@ -273,6 +274,20 @@ CREATE TABLE IF NOT EXISTS advances (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_adv_unique ON advances(employee_id, period_key);
 CREATE INDEX IF NOT EXISTS idx_adv_period ON advances(period_key);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_notif_dedupe ON notifications(dedupe) WHERE dedupe IS NOT NULL;
+CREATE TABLE IF NOT EXISTS broadcasts (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    category     TEXT NOT NULL DEFAULT 'other',  -- news | vacation | internal | other
+    title        TEXT NOT NULL,
+    body         TEXT DEFAULT '',
+    created_at   TEXT NOT NULL,
+    created_by   TEXT DEFAULT 'admin'
+);
+CREATE TABLE IF NOT EXISTS broadcast_reads (
+    broadcast_id INTEGER NOT NULL,
+    employee_id  INTEGER NOT NULL,
+    read_at      TEXT,
+    PRIMARY KEY (broadcast_id, employee_id)
+);
 CREATE INDEX IF NOT EXISTS idx_seg_emp ON work_segments(employee_id, work_date);
 CREATE INDEX IF NOT EXISTS idx_att_date ON attendance(work_date);
 CREATE INDEX IF NOT EXISTS idx_leave_emp ON leaves(employee_id, start_date);
@@ -2628,10 +2643,62 @@ def unread_count(employee_id: int | None) -> int:
     with connect() as con:
         if employee_id is None:
             r = con.execute("SELECT COUNT(*) c FROM notifications WHERE read_at IS NULL").fetchone()
+            return int(r["c"] or 0)
+        r = con.execute("SELECT COUNT(*) c FROM notifications WHERE employee_id=? AND read_at IS NULL",
+                        (employee_id,)).fetchone()
+        b = con.execute(
+            "SELECT COUNT(*) c FROM broadcasts b WHERE NOT EXISTS (SELECT 1 FROM broadcast_reads r "
+            "WHERE r.broadcast_id=b.id AND r.employee_id=? AND r.read_at IS NOT NULL)", (employee_id,)).fetchone()
+    return int(r["c"] or 0) + int(b["c"] or 0)
+
+
+# ---------- Бүх ажилчдад мэдэгдэл (мэдээ, амралт, дотоод мэдээ) ----------
+BROADCAST_CATS = {"news": "Мэдээ", "vacation": "Амралт, чөлөө", "internal": "Дотоод мэдээ", "other": "Бусад"}
+
+
+def create_broadcast(category: str, title: str, body: str = "", actor: str = "admin") -> dict:
+    cat = category if category in BROADCAST_CATS else "other"
+    title = (title or "").strip(); body = (body or "").strip()
+    if not title:
+        return {"ok": False, "error": "Гарчиг хоосон байна."}
+    if len(title) > 120 or len(body) > 2000:
+        return {"ok": False, "error": "Гарчиг 120, текст 2000 тэмдэгтээс хэтрэхгүй."}
+    with _lock, connect() as con:
+        cur = con.execute("INSERT INTO broadcasts(category, title, body, created_at, created_by) VALUES(?,?,?,?,?)",
+                          (cat, title, body, now_str(), actor))
+        n = con.execute("SELECT COUNT(*) c FROM employees WHERE active=1").fetchone()["c"]
+        con.commit()
+    audit(actor, "broadcast", f"{BROADCAST_CATS[cat]}: {title}")
+    return {"ok": True, "id": cur.lastrowid, "recipients": int(n), "label": BROADCAST_CATS[cat]}
+
+
+def list_broadcasts(limit: int = 30, employee_id: int | None = None) -> list[dict]:
+    with connect() as con:
+        if employee_id is None:
+            rows = con.execute("SELECT * FROM broadcasts ORDER BY id DESC LIMIT ?", (int(limit),)).fetchall()
+            out = [dict(r) for r in rows]
         else:
-            r = con.execute("SELECT COUNT(*) c FROM notifications WHERE employee_id=? AND read_at IS NULL",
-                            (employee_id,)).fetchone()
-    return int(r["c"] or 0)
+            rows = con.execute(
+                "SELECT b.*, r.read_at AS read_at FROM broadcasts b "
+                "LEFT JOIN broadcast_reads r ON r.broadcast_id=b.id AND r.employee_id=? "
+                "ORDER BY b.id DESC LIMIT ?", (employee_id, int(limit))).fetchall()
+            out = [dict(r) for r in rows]
+    for x in out:
+        x["label"] = BROADCAST_CATS.get(x.get("category"), "Бусад")
+    return out
+
+
+def mark_broadcasts_read(employee_id: int) -> int:
+    ts = now_str()
+    with _lock, connect() as con:
+        cur = con.execute(
+            "INSERT INTO broadcast_reads(broadcast_id, employee_id, read_at) "
+            "SELECT b.id, ?, ? FROM broadcasts b WHERE TRUE AND NOT EXISTS (SELECT 1 FROM broadcast_reads r "
+            "WHERE r.broadcast_id=b.id AND r.employee_id=? AND r.read_at IS NOT NULL) "
+            "ON CONFLICT(broadcast_id, employee_id) DO UPDATE SET read_at=excluded.read_at",
+            (employee_id, ts, employee_id))
+        con.commit()
+    return cur.rowcount
 
 
 def mark_notifications_read(ids: list[int] | None = None, employee_id: int | None = None) -> int:
@@ -4310,12 +4377,18 @@ INCIDENT_KINDS = {
     "equipment": "Ажлын хэрэгслийг буруу ашиглан эвдсэн (засах шаардлагатай)",
     "material": "Барилгын материалыг зохисгүй ашиглаж / үрсэн",
 }
-ENCOURAGE_MSGS = [
-    "Сайн явцгаая! Өнөөдөр ч сайн ажиллаарай 💪",
-    "Сайхан ажиллацгаая! Таны хөдөлмөр бидний хамгийн том хүч 👷",
-    "Хамтдаа сайн ажиллая! Үдийн хоолоо сайхан идээрэй 🍲",
-    "Хамтдаа л бүх ажлыг амжуулна! Үргэлжлүүлээрэй 🏗️",
-    "Чи маш сайн ажиллаж байна! Үлдсэн цагаа ч сайхан өнгөрүүлээрэй 🌟",
+# Үдийн завсарлагын 10 өөр мэдэгдэл (гарчиг, текст). Ажилтан бүр өдөр бүр өөр нэгийг хүлээн авна.
+LUNCH_NOTICES = [
+    ("Сайн ажиллаарай! 💪", "Таны өнөөдрийн ажил хүн бүрт хэрэгтэй. Үдийн хоолоо сайхан идээрэй, дараа нь бүр илүү сайн ажиллаарай."),
+    ("Таныг талархаж байна! 🙌", "Таны хөдөлмөр барилгын хамгийн том хүч 👷 Хүч чадлаа сэргээхээр завсарлагаа сайхан өнгөрүүлээрэй."),
+    ("Үдийн амралтын цаг боллоо 🍲", "Хоолоо сайхан идээд, гар хөлөө сэргээгээрэй. Үлдсэн цагт чинь ч амжилт хүсье!"),
+    ("Чи маш сайн явж байна! 🌟", "Өнөөдөр ч сайн ажиллаж байна. Үдийн завсарлагаа амарч, инээмсэглэлээ бүү алдаарай 😊"),
+    ("Хамтдаа л бүх ажлыг амжуулна! 🏗️", "Бие бялдраа сэргээж, үлдсэн ажилдаа бэлэн болоорой. Таны тусламж баг бүрт хэрэгтэй."),
+    ("Баярлалаа, найз минь! ☀️", "Өглөөнөөс хойш сайн ажилласан шүү. Хоолоо идээд, дараагийн ажилдаа хүчтэй орооч."),
+    ("Таны инээмсэглэл өдрийг гэрэлтүүлнэ 😊", "Үдийн завсарлагаа сайхан өнгөрүүлээрэй. Бид таны ажлыг үнэлдэг, баярлалаа!"),
+    ("Бие сэргээх цаг 🧘", "Богино амрах, ус уух, хоолоо идэх нь ажлын чадварыг өсгөнө. Сайхан амраарай."),
+    ("Сайн ажиллагаанд баярлалаа! 🤝", "Таны ажилсаар байгаа нь бидний ажлыг амжуулж байна. Үдийн хоолоо сайхан идээрэй."),
+    ("Чи бол бидний багийн хүч! 💪", "Завсарлагаа сайхан өнгөрүүлж, үлдсэн цагтаа ч мөн л сайхан ажиллаарай. Баяртай!"),
 ]
 
 OPS_SCHEMA = """
@@ -4646,7 +4719,7 @@ def bonus_table(month: str) -> dict:
 def extra_notifications(now: datetime, day: str, emps: list[dict], recs: dict, start: datetime,
                         end: datetime, lw) -> dict:
     s = get_settings()
-    pre = int(float(s.get("notify_pre_minutes") or 30))
+    pre = int(float(s.get("notify_pre_minutes") or 15))
     out = {"pre_start": 0, "pre_end": 0, "lunch_encourage": 0, "lunch_late": 0}
     out["backup_reminder"] = backup_reminder(now, s)
     day_idx = date.fromisoformat(day).toordinal()
@@ -4662,27 +4735,27 @@ def extra_notifications(now: datetime, day: str, emps: list[dict], recs: dict, s
         clocked_out = bool(rec.get("clock_out"))
         # 1) Өглөө — ажил эхлэхээс өмнө
         if (not on_leave and not clocked_in and start - timedelta(minutes=pre) <= now < start + timedelta(minutes=60)):
-            r = notify(eid, "pre_start", f"Ажил эхлэхэд {pre} минут үлдлээ",
-                       f"{start.strftime('%H:%M')}-д ажил эхэлнэ. Ирээд зурагтай бүртгэлээ хийгээрэй 📸",
+            r = notify(eid, "pre_start", "Цагаа бүртгүүлээрэй! ⏰",
+                       f"Ажил эхлэхэд {pre} минут үлдлээ. {start.strftime('%H:%M')}-д эхэлнэ. Ирээд зурагтай бүртгэлээ хийгээрэй 📸",
                        meta={"date": day}, dedupe=f"pre_start:{day}:{eid}")
             out["pre_start"] += 0 if r.get("skipped") else 1
         # 2) Орой — ажил дуусахаас өмнө
         if (not on_leave and not clocked_out and end - timedelta(minutes=pre) <= now < end + timedelta(minutes=60)):
-            r = notify(eid, "pre_end", f"Ажил дуусахад {pre} минут үлдлээ",
-                       f"{end.strftime('%H:%M')}-д ажил дуусна. Гарахдаа зураг авч гарах бүртгэл хийгээрэй 📸",
+            r = notify(eid, "pre_end", "Цагаа бүртгүүлээрэй! ⏰",
+                       f"Ажил дуусахад {pre} минут үлдлээ. {end.strftime('%H:%M')}-д дуусна. Гарахдаа зураг авч гарах бүртгэл хийгээрэй 📸",
                        meta={"date": day}, dedupe=f"pre_end:{day}:{eid}")
             out["pre_end"] += 0 if r.get("skipped") else 1
         # 3) Үд — урамшуулал + хоцорсон бол хоцролтын мэдээлэл
         if lw and lw[0] <= now < lw[1] and not on_leave and clocked_in:
-            msg = ENCOURAGE_MSGS[(day_idx + eid) % len(ENCOURAGE_MSGS)]
-            r = notify(eid, "encourage", "Сайн ажиллаарай!", msg, meta={"date": day},
+            ttl, msg = LUNCH_NOTICES[(day_idx + eid) % len(LUNCH_NOTICES)]
+            r = notify(eid, "encourage", ttl, msg, meta={"date": day},
                        dedupe=f"lunch:{day}:{eid}")
             out["lunch_encourage"] += 0 if r.get("skipped") else 1
             late = int(rec.get("late_minutes") or 0)
             if late > 0:
-                r = notify(eid, "late", f"Өнөөдөр {late} минут хоцорлоо",
-                           f"Өнөөдөр та {late} минут хоцорлоо. Маргааш цагтаа ирэхийг хичээгээрэй. "
-                           f"Сард хоцролт + тасалт нийлээд 120 мин-аас давбал бонус алдагдана.",
+                r = notify(eid, "late", f"Өнөөдөр {late} минут хоцорлоо — бүү сэтгэлээр унаарай 🌤️",
+                           f"Өнөөдөр {late} минут хоцорсон байна. Таны хичээл зүтгэл үнэтэй. Маргааш нэг минут ч эрт ирэх нь "
+                           f"таны бонусыг хамгаална 🌟 Сард хоцролт + тасалт нийлээд 120 мин-аас давбал бонус алдагдана.",
                            meta={"date": day, "late_minutes": late}, dedupe=f"late:{day}:{eid}")
                 out["lunch_late"] += 0 if r.get("skipped") else 1
     return out
