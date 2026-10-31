@@ -50,7 +50,7 @@ from core import (LEAVE_KINDS, DAY_STATUS_LABEL, LEAVE_STATUS_LABEL, add_leave, 
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 STATIC_DIR = os.path.join(BASE_DIR, "static")
-VERSION = "4.7.8"
+VERSION = "4.8.0"
 
 MIME = {".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8",
         ".js": "application/javascript; charset=utf-8", ".json": "application/json; charset=utf-8",
@@ -1511,6 +1511,27 @@ def r_admin_broadcast(h, ident):
 def r_admin_broadcasts(h, ident):
     require(h, "admin")
     return {"broadcasts": core.list_broadcasts(30)}
+
+
+@route("POST", "/api/employee/position")
+def r_emp_position(h, ident):
+    """Ажилтны амьд байрлал (апп нээлттэй, ээлжийн үед л хадгална)."""
+    ident = require(h, "employee")
+    eid = int(ident["employee_id"]) if ident.get("employee_id") else None
+    if not eid:
+        raise ApiError(403, "Энэ хэсэг зөвхөн ажилтанд зориулагдсан.")
+    b = h.body or {}
+    res = core.save_live_position(eid, b.get("lat"), b.get("lng"), b.get("accuracy"))
+    if not res.get("ok") and not res.get("skipped"):
+        raise ApiError(400, res.get("error", "Байрлал хадгалах боломжгүй."))
+    return res
+
+
+@route("GET", "/api/admin/live")
+def r_admin_live(h, ident):
+    """Захирал: бүх ажилчдын амьд байрлал (зөвхөн админ)."""
+    require(h, "admin")
+    return core.live_locations_board()
 
 
 @route("POST", "/api/admin/notifications/tick")

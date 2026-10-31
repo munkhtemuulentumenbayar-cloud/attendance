@@ -4812,3 +4812,95 @@ def backup_reminder(now: datetime, s: dict) -> bool:
                       "Өгөгдлөө хадгалахын тулд Тохиргоо → Нөөц хуулбар татна уу "
                       "(фото болон бүх бүртгэл орно).", dedupe=f"backup:{week}")
     return not r.get("skipped")
+
+
+# ==========================================================================
+# v4.8 — Ажилчдын амьд байршил (апп нээлттэй, ээлжийн үед; зөвхөн админ харна)
+# ==========================================================================
+LIVE_STALE_S = 300          # 5 минутаас дээш байрлал ирээгүй бол «удсан»
+LIVE_STATUS_LABEL = {
+    "in": "Ажлын байрны хүрээнд",
+    "out": "Хүрээнээс гадна байна",
+    "stale": "Байрлал удаан ирээгүй",
+    "nogeo": "Байршлын хязгаар идэвхгүй",
+    "off": "Одоо ээлжинд байхгүй",
+}
+
+
+def ensure_live_table(con) -> None:
+    con.execute("CREATE TABLE IF NOT EXISTS live_positions ("
+                "employee_id INTEGER PRIMARY KEY, lat REAL, lng REAL, accuracy REAL, updated_at TEXT NOT NULL)")
+
+
+def shift_open_today(employee_id: int) -> bool:
+    with connect() as con:
+        r = con.execute("SELECT clock_in, clock_out FROM attendance WHERE employee_id=? AND work_date=?",
+                        (employee_id, today_str())).fetchone()
+    return bool(r and r["clock_in"] and not r["clock_out"])
+
+
+def save_live_position(employee_id: int, lat, lng, accuracy=None) -> dict:
+    try:
+        lat = float(lat); lng = float(lng)
+    except (TypeError, ValueError):
+        return {"ok": False, "error": "Байрлал буруу байна."}
+    if not (-90 <= lat <= 90 and -180 <= lng <= 180):
+        return {"ok": False, "error": "Байрлал буруу байна."}
+    if not shift_open_today(employee_id):
+        # Ээлж эхлээгүй / дууссан бол байрлал хадгалахгүй
+        return {"ok": False, "skipped": True, "error": "Ээлж эхлээгүй байна."}
+    try:
+        acc = float(accuracy) if accuracy is not None else None
+    except (TypeError, ValueError):
+        acc = None
+    with _lock, connect() as con:
+        ensure_live_table(con)
+        con.execute("INSERT INTO live_positions(employee_id, lat, lng, accuracy, updated_at) VALUES(?,?,?,?,?) "
+                    "ON CONFLICT(employee_id) DO UPDATE SET lat=excluded.lat, lng=excluded.lng, "
+                    "accuracy=excluded.accuracy, updated_at=excluded.updated_at",
+                    (employee_id, lat, lng, acc, now_str()))
+        con.commit()
+    return {"ok": True}
+
+
+def live_locations_board() -> dict:
+    now = now_local(); day = today_str()
+    with connect() as con:
+        ensure_live_table(con)
+        pos = {r["employee_id"]: dict(r) for r in con.execute("SELECT * FROM live_positions").fetchall()}
+        recs = {r["employee_id"]: dict(r) for r in con.execute(
+            "SELECT employee_id, clock_in, clock_out FROM attendance WHERE work_date=?", (day,)).fetchall()}
+    rows = []
+    for e in list_employees(active_only=True):
+        eid = e["id"]
+        p = pos.get(eid)
+        rec = recs.get(eid) or {}
+        on_shift = bool(rec.get("clock_in") and not rec.get("clock_out"))
+        geo = effective_geo(e)
+        age = None; dist = None; inside = None
+        if p:
+            age = int((now - datetime.strptime(p["updated_at"], "%Y-%m-%d %H:%M:%S")).total_seconds())
+        if p and geo.get("lat") is not None:
+            dist = haversine_m(float(geo["lat"]), float(geo["lng"]), float(p["lat"]), float(p["lng"]))
+            inside = dist <= float(geo.get("radius_m") or 300)
+        if not on_shift:
+            status = "off"
+        elif geo.get("lat") is None:
+            status = "nogeo"
+        elif p is None or age is None or age > LIVE_STALE_S:
+            status = "stale"
+        else:
+            status = "in" if inside else "out"
+        rows.append({
+            "employee_id": eid, "code": e.get("code"), "name": e.get("full_name"), "status": status,
+            "status_label": LIVE_STATUS_LABEL[status],
+            "lat": float(p["lat"]) if p else None, "lng": float(p["lng"]) if p else None,
+            "accuracy": p["accuracy"] if p else None, "age_s": age,
+            "dist_m": round(dist) if dist is not None else None,
+            "radius_m": geo.get("radius_m"), "site_name": geo.get("name"),
+            "site_lat": geo.get("lat"), "site_lng": geo.get("lng"),
+            "clock_in": rec.get("clock_in"),
+        })
+    order = {"out": 0, "stale": 1, "in": 2, "nogeo": 3, "off": 4}
+    rows.sort(key=lambda r: (order.get(r["status"], 9), r["code"] or ""))
+    return {"time": now_str(), "stale_s": LIVE_STALE_S, "rows": rows}

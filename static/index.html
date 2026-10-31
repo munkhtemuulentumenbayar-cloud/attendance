@@ -764,7 +764,7 @@ function playNotifySound(){
   try{ if(navigator.vibrate) navigator.vibrate([200, 100, 200]); }catch(e){}
 }
 // Шинэ мэдэгдлийг 30 секунд тутам шалгана (ажилтан, захирал хоёулд)
-if(!window.__notifPoll){ window.__notifPoll = setInterval(()=>{ if(S.me && S.view!=='login' && !S.modalOpen) loadNotifs(); }, 30000); }
+if(!window.__notifPoll){ window.__notifPoll = setInterval(()=>{ if(S.me && S.view!=='login' && !S.modalOpen) loadNotifs(); if(S.me && S.me.role==='employee' && typeof startPositionPing==='function') startPositionPing(); }, 30000); }
 
 // Захирал: бүх ажилчдад мэдэгдэл илгээх маягт
 function broadcastFormOpen(){
@@ -1108,7 +1108,7 @@ function loginView(){
       ${(!isStandalone()) ? `<div style="text-align:center;margin-top:14px">
         <button class="btn small" data-act="install">${ic('download')} 📲 Утсанд суулгах заавар</button></div>` : ''}
       <div class="footer-note" style="margin-top:18px">
-        Техникийн дэмжлэг: <span class="mono">/api/health</span> · Хувилбар 4.7.8
+        Техникийн дэмжлэг: <span class="mono">/api/health</span> · Хувилбар 4.8.0
       </div>
     </div></div></div>`;
 }
@@ -1430,7 +1430,7 @@ function adminView(){
          ['site',`${ic('pin')} Ажлын байр`],
          ['month',`${ic('doc')} Сарын тайлан`],
          ['matrix',`${ic('grid')} Хүснэгт`],
-         ['emp',`${ic('users')} Ажилтнууд`],['geo',`${ic('compass')} Гео хаалт`],
+         ['emp',`${ic('users')} Ажилтнууд`],['geo',`${ic('compass')} Гео хаалт`],['live',`📍 Байршил`],
          ['photo',`${ic('camera')} Фото хяналт`],['cfg',`${ic('gear')} Тохиргоо`],['agent',`${ic('robot')} AI агент`]]
         .map(([k,l])=>`<button class="tab ${S.tab===k?'active':''}" data-act="tab" data-tab="${k}">${l}</button>`).join('')}
     </div>
@@ -1569,6 +1569,7 @@ function adminTabBody(){
     case 'matrix': return adminMatrix();
     case 'emp':    return adminEmployees();
     case 'geo':    return adminGeo();
+    case 'live':   return liveTabHTML();      // v4.8: ажилчдын амьд байршил
     case 'photo':  return adminPhoto();
     case 'cfg':    return adminConfig();
     default:       return adminAgent();
@@ -2758,7 +2759,7 @@ function adminConfig(){
       <div class="kv"><span class="k">Цагийн бүс</span><span class="v">${esc(s.timezone||'')}</span></div>
       <div class="kv"><span class="k">Серверийн цаг</span><span class="v">${esc(S.meta?S.meta.server_time:'')}</span></div>
       <div class="kv"><span class="k">Ажлын өдрүүд</span><span class="v">${esc(S.meta?S.meta.workdays_label:'')}</span></div>
-      <div class="kv"><span class="k">Хувилбар</span><span class="v">4.7.8</span></div>
+      <div class="kv"><span class="k">Хувилбар</span><span class="v">4.8.0</span></div>
     </div>
   </div>`;
 }
@@ -3624,6 +3625,7 @@ async function loadTabData(){
   else if (S.tab==='matrix') await loadMatrix(S.month);
   else if (S.tab==='emp') await loadEmployees();
   else if (S.tab==='geo'){ await loadSettingsOnly(); await loadGeoLog(); render(); }
+  else if (S.tab==='live'){ render(); await loadLiveBoard(); }   // v4.8
   else if (S.tab==='cfg'){ await loadSettingsOnly(); await loadAudit(); render(); }
   else if (S.tab==='photo'){ await loadPhotos(true); render(); }   // v3: Фото хяналт
   else if (S.tab==='agent'){ await loadKeys(); render(); }

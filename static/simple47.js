@@ -180,6 +180,7 @@ function simpleAdminView(){
     <div class="hint">Юу хийх вэ? Доорх товчийг дарна уу.</div>
     <div class="tiles">
       ${tile('board','📋','Өнөөдөр<br>хэн ажиллаж байгаа',"blue",'Ирсэн, ирээгүй')}
+      ${tile('live','📍','Ажилчдын<br>байршил',"blue",'Амьд газрын зураг')}
       ${tile('ops','🌧','Ажил цуцлах',"red",'Цас, салхи, бороо')}
       ${tile('ops','📍','Өөр байршилд<br>оноох',"",'Өдрөөр')}
       ${tile('leave','🏖','Чөлөөний<br>хүсэлт',"green",'Батлах / татгалзах')}
@@ -315,7 +316,7 @@ async function mountLiveMap(box, g, onStatus, live){
 }
 function siteStatusFromDist(g, dist, acc){
   if (dist === null || dist === undefined) return '';
-  return siteStatusHTML(g, dist) + `<div class="small" style="text-align:center">GPS нарийвчлал ±${Math.round(acc||0)} м · амьд шинэчлэгдэж байна</div>
+  return siteStatusHTML(g, dist) + `<div class="small" style="text-align:center">GPS нарийвчлал ±${Math.round(acc||0)} м · шууд шинэчлэгдэж байна</div>
     <a class="btn small" style="display:block;text-align:center;margin-top:8px" href="${gmapsLink(g)}" target="_blank" rel="noopener">🗺 Google Maps-д нээх (чиглэл)</a>`;
 }
 let _siteLive = null;   // одоогийн харагдаж буй амьд зургийн watch
@@ -388,4 +389,94 @@ function geoPrePhoto(pos){
       if (live) live.update({coords:{latitude: me.lat, longitude: me.lng, accuracy: pos.accuracy || 10}});
     }).catch(() => { if (box) box.innerHTML = siteMapSVG(g, me); });
   });
+}
+
+
+/* ===== v4.8: Ажилчдын амьд байршил (админ) + ажилтны байрлал дамжуулалт ===== */
+const LIVE_COLOR = { in: '#16a34a', out: '#dc2626', stale: '#f59e0b', nogeo: '#2563eb', off: '#94a3b8' };
+const LIVE_CLASS = { in: 'green', out: 'red', stale: 'amber', nogeo: 'blue', off: 'gray' };
+function liveTabHTML(){
+  return `<div class="card">
+    <h3 style="margin:0 0 4px">📍 Ажилчдын байршил</h3>
+    <div class="small" style="margin-bottom:8px">Зөвхөн ээлжинд байгаа, апп нээлттэй ажилтны байрлал харагдана. 20 секунд тутам шинэчлэгдэнэ.</div>
+    <div class="row small" style="gap:10px;flex-wrap:wrap;margin-bottom:8px">
+      <span><span style="color:#16a34a">●</span> Хүрээнд</span><span><span style="color:#dc2626">●</span> Хүрээнээс гадна</span>
+      <span><span style="color:#f59e0b">●</span> Удсан</span><span><span style="color:#2563eb">●</span> Гео идэвхгүй</span>
+      <span><span style="color:#94a3b8">●</span> Ээлжинд байхгүй</span></div>
+    <div id="liveMapBox" style="height:340px;border-radius:14px;overflow:hidden;border:1px solid #cbd5e1"></div>
+    <div class="small" id="liveStamp" style="margin:6px 0 8px;color:#475569">Ачаалж байна…</div>
+    <div id="liveList"></div></div>`;
+}
+async function loadLiveBoard(){
+  if (!S.me || S.me.role!=='admin' || S.tab!=='live') return;
+  try { S.live = await api('/api/admin/live'); } catch(e){ S.live = S.live || null; return; }
+  if (S.tab!=='live') return;
+  try { await updateLiveMap(); }
+  catch(e){ const st = document.getElementById('liveStamp'); if (st) st.textContent = 'Газрын зураг ачаалагдсангүй (интернэт холболтоо шалгана уу). Жагсаалт доор харагдана.'; }
+  updateLiveList();
+  if (!window.__liveTimer) window.__liveTimer = setInterval(()=>{
+    if (S.tab==='live' && S.view==='admin' && !S.modalOpen && document.getElementById('liveMapBox')) loadLiveBoard();
+  }, 20000);
+}
+async function updateLiveMap(){
+  const box = document.getElementById('liveMapBox'); const data = S.live;
+  if (!box || !data) return;
+  const L = await loadLeaflet();
+  if (!box._lmap){
+    box._lmap = L.map(box, { zoomControl: true, attributionControl: true });
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; OpenStreetMap' }).addTo(box._lmap);
+    box._lgroup = L.layerGroup().addTo(box._lmap); box._fitted = false;
+    box._lmap.setView([47.92, 106.92], 13);                    // анхдагч: Улаанбаатар
+  }
+  const map = box._lmap; box._lgroup.clearLayers();
+  const sites = {}; const pts = [];
+  for (const r of data.rows){
+    if (r.site_lat != null && r.site_lng != null){
+      const k = r.site_lat.toFixed(5)+','+r.site_lng.toFixed(5);
+      if (!sites[k]) sites[k] = { lat: r.site_lat, lng: r.site_lng, r: Number(r.radius_m)||300, name: r.site_name||'' };
+    }
+    if (r.lat == null) continue;
+    const col = LIVE_COLOR[r.status] || '#2563eb';
+    L.circleMarker([r.lat, r.lng], { radius: 10, color: '#fff', weight: 3, fillColor: col, fillOpacity: 1 })
+      .bindPopup(`<b>${esc(r.name)}</b> (${esc(r.code)})<br>${esc(r.status_label)}`
+        + (r.dist_m != null ? `<br>Ажлын байрнаас ${r.dist_m} м` : '')
+        + (r.age_s != null ? `<br>${fmtAgo(r.age_s)}` : ''))
+      .addTo(box._lgroup);
+    pts.push([r.lat, r.lng]);
+  }
+  for (const k in sites){
+    const st = sites[k];
+    L.circle([st.lat, st.lng], { radius: st.r, color: '#16a34a', fillColor: '#16a34a', fillOpacity: .12, weight: 2 })
+      .bindPopup('<b>Ажлын байр</b><br>' + esc(st.name)).addTo(box._lgroup);
+    L.circleMarker([st.lat, st.lng], { radius: 6, color: '#fff', weight: 2, fillColor: '#1d4ed8', fillOpacity: 1 }).addTo(box._lgroup);
+    pts.push([st.lat, st.lng]);
+  }
+  if (!box._fitted && pts.length){ map.fitBounds(pts, { padding: [30, 30], maxZoom: 17 }); box._fitted = true; }
+  const stamp = document.getElementById('liveStamp');
+  if (stamp) stamp.textContent = `Шинэчлэгдсэн: ${String(data.time||'').slice(11,19)} · Нийт ${data.rows.length} ажилтан`;
+}
+function fmtAgo(s){ if (s==null) return 'Байрлал ирээгүй'; if (s<60) return 'Саяхан'; return Math.round(s/60)+' минутын өмнө'; }
+function updateLiveList(){
+  const el = document.getElementById('liveList'); const data = S.live;
+  if (!el || !data) return;
+  el.innerHTML = data.rows.map(r => `<div class="notif" style="align-items:center">
+      <span class="pill ${LIVE_CLASS[r.status]||''}">${esc(r.status_label)}</span>
+      <div style="flex:1"><b>${esc(r.name)}</b> <span class="small">${esc(r.code)}</span>
+        <div class="small">${r.lat!=null ? fmtAgo(r.age_s) : 'Байрлал ирээгүй'}${r.dist_m!=null?' · '+r.dist_m+' м':''}</div></div></div>`).join('')
+    || '<div class="small">Ажилтан байхгүй.</div>';
+}
+/* Ажилтан: ээлжийн үед 90 секунд тутам байрлал илгээнэ (апп нээлттэй, дэлгэц харагдаж байх үед) */
+let __posTimer = null;
+function startPositionPing(){
+  if (__posTimer || !navigator.geolocation) return;
+  const send = () => {
+    if (!S.me || S.me.role!=='employee' || document.hidden) return;
+    navigator.geolocation.getCurrentPosition(p => {
+      api('/api/employee/position', { method:'POST', body:{ lat:p.coords.latitude, lng:p.coords.longitude, accuracy:p.coords.accuracy } }).catch(()=>{});
+    }, ()=>{}, { enableHighAccuracy:true, timeout:15000, maximumAge:30000 });
+  };
+  send();
+  __posTimer = setInterval(send, 30000);
+  // Дэлгэц асаах / апп руу буцаж орох үед даруй шинэчилнэ
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) send(); });
 }
