@@ -42,6 +42,7 @@ _lock = threading.RLock()
 # --------------------------------------------------------------------------
 DEFAULT_SETTINGS = {
     "company_name": "Барилгын Бригад ХХК",
+    "contact_info": "",                 # нэвтрэх хуудсанд харагдах холбоо барих мэдээлэл
     "timezone": "Asia/Ulaanbaatar",
     "schedule_start": "09:00",
     "schedule_end": "19:00",          # ажлын өдөр 09:00–19:00
@@ -2765,6 +2766,30 @@ def mark_notifications_read(ids: list[int] | None = None, employee_id: int | Non
             cur = con.execute("UPDATE notifications SET read_at=? WHERE read_at IS NULL", (ts,))
         con.commit()
     return cur.rowcount
+
+
+def request_pin_reset(code: str, full_name: str) -> dict:
+    """
+    Нэвтрэх чадаагүй ажилтны хүсэлтийг админд мэдэгдэнэ (нэвтрэлт шаардахгүй).
+    Таарсан ажилтан бол ПИН сэргээх хүсэлт; таараагүй бол «бүртгэлгүй хүн» гэж тэмдэглэнэ.
+    Гадны хүнд систем байгаа эсэхийг илтгэхгүйн тулд хариулт үргэлж адил байна.
+    """
+    code = (code or "").strip()[:30]
+    name = (full_name or "").strip()[:80]
+    if not code:
+        return {"ok": False}
+    with connect() as con:
+        r = con.execute("SELECT id, code, full_name, active FROM employees WHERE code=? COLLATE NOCASE",
+                        (code,)).fetchone()
+    if r and r["active"] and name.lower() == str(r["full_name"]).strip().lower():
+        notify_admins("pin_reset", "ПИН сэргээх хүсэлт",
+                      f"{r['code']} {r['full_name']} ПИН-ээ мартсан. Ажилтны засварт шинэ ПИН өгнө үү.",
+                      meta={"employee_id": r["id"]}, dedupe=f"pin:{r['code']}:{today_str()}")
+        return {"ok": True, "matched": True}
+    notify_admins("pin_reset", "Бүртгэлгүй хүн хүсэлт илгээлээ",
+                  f"Код: {code}, нэр: {name or '-'}. Системд таарах ажилтан олдсонгүй — шалгаад бүртгэнэ үү.",
+                  meta={"code": code, "name": name}, dedupe=f"pin-unk:{code}:{today_str()}")
+    return {"ok": True, "matched": False}
 
 
 def notify_admins(kind: str, title: str, body: str = "", meta: dict | None = None,

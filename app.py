@@ -25,7 +25,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import core
 import reports
-from core import (LEAVE_KINDS, DAY_STATUS_LABEL, LEAVE_STATUS_LABEL, add_leave, approve_segment,
+from core import (LEAVE_KINDS, request_pin_reset, DAY_STATUS_LABEL, LEAVE_STATUS_LABEL, add_leave, approve_segment,
                   cancel_leave, create_site, decide_leave, delete_leave, delete_site,
                   pending_leave_requests, request_leave, parse_geo_text,
                   extra_start, extra_stop, list_notifications, list_segments, live_pay,
@@ -201,10 +201,19 @@ def r_meta(h, ident):
                      # v4.6: демо байршлын товч (GPS ажиллахгүй үед) + газрын зурагт хэрэглэнэ
                      "lat": float(s["geofence_lat"] or 0), "lng": float(s["geofence_lng"] or 0)},
         "demo_mode": s["demo_mode"] == "1",
+        "contact_info": s.get("contact_info", ""),
         "server_time": now_local().strftime("%Y-%m-%d %H:%M:%S"),
         "weekday_mn": core.WEEKDAY_MN[core.now_local().isoweekday()],
         "status_labels": core.STATUS_MN,
     }
+
+
+@route("POST", "/api/auth/pin-reset-request")
+def r_pin_reset_request(h, ident):
+    res = request_pin_reset(h.body.get("code") or "", h.body.get("full_name") or "")
+    if not res.get("ok"):
+        raise ApiError(400, "Ажилтны кодоо бичнэ үү.")
+    return {"ok": True, "message": "Хүсэлт илгээгдлээ. Админ тантай холбогдоно."}
 
 
 @route("POST", "/api/auth/employee-login")
