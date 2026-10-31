@@ -50,12 +50,12 @@ function simpleEmployeeView(){
     <div class="simple-status ${st==='working'?'working':(st==='done'?'done':'')}">${esc(text)}</div>
     ${late ? `<div class="simple-note warn">⚠ Өнөөдөр ${late} минут хоцорсон. Маргааш цагтаа ирээрэй.</div>` : ''}
     <div class="simple-times">Ажлын цаг: <b>${esc(d.schedule.start)}</b> – <b>${esc(d.schedule.end)}</b></div>
-    ${simpleSiteCard(d)}
     <div class="simple-clock">
       <button class="simple-big in" id="btnIn" ${canIn?'':'disabled'}><span class="emo">🟢</span>АЖИЛД<br>ОРОХ</button>
       <button class="simple-big out" id="btnOut" ${canOut?'':'disabled'}><span class="emo">🔴</span>АЖЛААС<br>ГАРАХ</button>
     </div>
     <div class="simple-help">Бүртгэл бүрт <b>зураг авна</b>. Утасныхаа камер ба байршлын зөвшөөрлийг нээлттэй байлгаарай.</div>
+    ${simpleSiteCard(d)}
     <div class="simple-tiles">
       <button class="simple-tile" onclick="simpleMoney()"><span class="emo">💰</span>Миний цалин</button>
       <button class="simple-tile" onclick="simpleBonus()"><span class="emo">🎁</span>Миний бонус</button>
@@ -245,6 +245,82 @@ function siteStatusHTML(g, dist){
   if (d <= r) return `<div class="simple-note" style="background:#ecfdf5;border-color:#16a34a">✅ Та ажлын байрны хүрээнд байна.<br><b>Зай ${d} м</b> · хүрээ ${r} м. Зураг авч бүртгэл хийж болно.</div>`;
   return `<div class="simple-note" style="background:#fef2f2;border-color:#dc2626">❌ Та ажлын байрны хүрээнээс гадна байна.<br><b>Зай ${d} м</b> · хүрээ ${r} м → таны байрлал <b>${d - r} м</b> гадна.<br>Бүртгэл хийгдэхгүй. Хүрээн дотор ойртоод дахин оролдоно уу.</div>`;
 }
+/* ---- Газрын зураг (Leaflet + OpenStreetMap), амьд байршил ---- */
+const LEAFLET_CFG = {
+  css: 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css', cssSri: 'sha384-sHL9NAb7lN7rfvG5lfHpm643Xkcjzp4jFvuavGOndn6pjVqS6ny56CAt3nsEVT4H',
+  js: 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js', jsSri: 'sha384-cxOPjt7s7Iz04uaHJceBmS+qpjv2JkIHNVcuOrM+YHwZOmJGBXI00mdUXEq65HTH'
+};
+let _leafletP = null;
+function loadLeaflet(){
+  if (window.L) return Promise.resolve(window.L);
+  if (_leafletP) return _leafletP;
+  _leafletP = new Promise((res, rej) => {
+    const l = document.createElement('link'); l.rel = 'stylesheet'; l.href = LEAFLET_CFG.css;
+    l.integrity = LEAFLET_CFG.cssSri; l.crossOrigin = '';
+    document.head.appendChild(l);
+    const s = document.createElement('script'); s.src = LEAFLET_CFG.js;
+    s.integrity = LEAFLET_CFG.jsSri; s.crossOrigin = '';
+    s.onload = () => res(window.L);
+    s.onerror = () => { _leafletP = null; rej(new Error('Газрын зураг ачаалагдсангүй. Интернэт холболтоо шалгана уу.')); };
+    document.head.appendChild(s);
+  });
+  return _leafletP;
+}
+function gmapsLink(g){
+  return `https://www.google.com/maps/dir/?api=1&destination=${g.lat},${g.lng}&travelmode=driving`;
+}
+/* Газрын зураг үүсгэж, ажлын байр + (сонголтоор) амьд байршлыг харуулна.
+   Буцаах: { update, stop } — watch-ийг зогсооно. */
+async function mountLiveMap(box, g, onStatus, live){
+  const L = await loadLeaflet();
+  if (!document.body.contains(box)) return null;
+  box.innerHTML = '<div class="livemap" style="height:300px;border-radius:14px;overflow:hidden;border:1px solid #cbd5e1"></div>';
+  const map = L.map(box.firstChild, { zoomControl: true, attributionControl: true });
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; OpenStreetMap' }).addTo(map);
+  const r = Number(g.radius_m) || 300;
+  const site = [g.lat, g.lng];
+  const circle = L.circle(site, { radius: r, color: '#16a34a', fillColor: '#16a34a', fillOpacity: .15, weight: 2 }).addTo(map);
+  L.circleMarker(site, { radius: 9, color: '#fff', weight: 3, fillColor: '#1d4ed8', fillOpacity: 1 })
+    .bindPopup('<b>Ажлын байр</b><br>' + (g.name || '')).addTo(map);
+  // Харах хэсэг: ажлын байрны хүрээг бүтэн харуулна (радиусаас тооцно)
+  const span = r * 1.6, dLat = span / 110574, dLng = span / (111320 * Math.cos(g.lat * Math.PI / 180));
+  map.fitBounds([[g.lat - dLat, g.lng - dLng], [g.lat + dLat, g.lng + dLng]], { padding: [16, 16] });
+  let meMarker = null, meAcc = null, watchId = null;
+  const stop = () => { if (watchId !== null && navigator.geolocation) navigator.geolocation.clearWatch(watchId); watchId = null; };
+  const update = pos => {
+    if (!document.body.contains(box)) { stop(); return; }
+    const ll = [pos.coords.latitude, pos.coords.longitude];
+    const acc = pos.coords.accuracy || 10;
+    const dist = geoDistM({lat: g.lat, lng: g.lng}, {lat: ll[0], lng: ll[1]});
+    const colour = dist <= r ? '#16a34a' : '#dc2626';
+    if (!meMarker) {
+      meMarker = L.circleMarker(ll, { radius: 10, color: '#fff', weight: 3, fillColor: colour, fillOpacity: 1 })
+        .bindPopup('<b>Таны байрлал</b>').addTo(map);
+      meAcc = L.circle(ll, { radius: acc, color: colour, weight: 1, fillOpacity: .08 }).addTo(map);
+    } else {
+      meMarker.setLatLng(ll); meMarker.setStyle({ fillColor: colour, color: '#fff' });
+      meAcc.setLatLng(ll); meAcc.setRadius(acc); meAcc.setStyle({ color: colour });
+    }
+    if (onStatus) onStatus(dist, acc);
+  };
+  if (live && navigator.geolocation) {
+    watchId = navigator.geolocation.watchPosition(update,
+      e => { if (onStatus) onStatus(null, null, e.code === 1
+        ? 'Байршлын зөвшөөрөл өгөгдөөгүй байна. Утасны тохиргооноос байршлыг зөвшөөрнө үү.'
+        : 'Байршил тодорхойлогдохгүй байна. GPS-ээ асаана уу.'); },
+      { enableHighAccuracy: true, maximumAge: 5000, timeout: 20000 });
+  }
+  setTimeout(() => map.invalidateSize(), 150);
+  return { map, update, stop };
+}
+function siteStatusFromDist(g, dist, acc){
+  if (dist === null || dist === undefined) return '';
+  return siteStatusHTML(g, dist) + `<div class="small" style="text-align:center">GPS нарийвчлал ±${Math.round(acc||0)} м · амьд шинэчлэгдэж байна</div>
+    <a class="btn small" style="display:block;text-align:center;margin-top:8px" href="${gmapsLink(g)}" target="_blank" rel="noopener">🗺 Google Maps-д нээх (чиглэл)</a>`;
+}
+let _siteLive = null;   // одоогийн харагдаж буй амьд зургийн watch
+function stopSiteLive(){ if (_siteLive) { try { _siteLive.stop(); } catch(e){} _siteLive = null; } }
+
 function simpleSiteCard(d){
   const g = d.geo || {};
   const name = (d.site && d.site.name) || g.name || '—';
@@ -252,26 +328,30 @@ function simpleSiteCard(d){
     return `<div class="simple-site"><div class="small"><b>📍 Өнөөдрийн ажлын байр</b></div>
       <div>${esc(name)}</div><div class="small">Хаалтгүй (байршлын хяналтгүй)</div></div>`;
   }
+  g.name = name;
+  setTimeout(startSiteLive, 0);          // DOM бэлэн болсны дараа эхлүүлнэ
   return `<div class="simple-site">
     <div class="small"><b>📍 Өнөөдрийн ажлын байр</b></div>
     <div style="font-size:18px;font-weight:700">${esc(name)}</div>
-    <div class="small">Зөвшөөрөгдөх хүрээ: <b>${Math.round(g.radius_m)} м</b></div>
-    <div id="siteMapBox">${siteMapSVG(g, null)}</div>
-    <div id="siteStatus"><div class="small" style="text-align:center">Таны байрлалыг харахын тулд доорх товчийг дарна уу.</div></div>
-    <button class="simple-tile" style="width:100%;margin-top:8px" onclick="simpleShowMyDist()"><span class="emo">📍</span>Миний байрлалыг харах</button>
+    <div class="small">Зөвшөөрөгдөх хүрээ: <b>${Math.round(g.radius_m)} м</b> · Газрын зураг дээр та болон ажлын байр харагдана</div>
+    <div id="siteMapBox" style="margin-top:6px"><div class="small" style="text-align:center;padding:30px 0">Газрын зураг ачаалж байна…</div></div>
+    <div id="siteStatus"><div class="small" style="text-align:center">Таны байрлал тодорхойлж байна…</div></div>
   </div>`;
 }
-async function simpleShowMyDist(){
-  const g = (S.emp && S.emp.geo) || {};
+async function startSiteLive(){
   const box = document.getElementById('siteMapBox'), st = document.getElementById('siteStatus');
-  if (st) st.innerHTML = `<div class="small" style="text-align:center">Байршил тодорхойлж байна…</div>`;
+  const g = (S.emp && S.emp.geo) || {};
+  if (!box || !siteHasCoords(g)) return;
+  stopSiteLive();
   try{
-    const pos = await getPosition();
-    const me = {lat: pos.latitude, lng: pos.longitude};
-    const dist = geoDistM({lat:g.lat, lng:g.lng}, me);
-    if (box) box.innerHTML = siteMapSVG(g, me);
-    if (st) st.innerHTML = siteStatusHTML(g, dist) + `<div class="small" style="text-align:center">GPS нарийвчлал ±${Math.round(pos.accuracy||0)} м</div>`;
+    _siteLive = await mountLiveMap(box, g, (dist, acc, err) => {
+      if (!st) return;
+      if (err) { st.innerHTML = `<div class="simple-note warn">${esc(err)}</div>`; return; }
+      st.innerHTML = siteStatusFromDist(g, dist, acc);
+    }, true);
   }catch(e){
+    // Газрын зураг ачаалагдахгүй бол зурсан схем
+    if (box) box.innerHTML = siteMapSVG(g, null);
     if (st) st.innerHTML = `<div class="simple-note warn">${esc(e.message)}</div>`;
   }
 }
@@ -284,17 +364,28 @@ function geoPrePhoto(pos){
   const inside = dist <= Number(g.radius_m || 300);
   return new Promise(resolve => {
     const o = modal(`<h3>📍 Байрлал шалгах</h3>
-      ${siteMapSVG(g, me)}
-      ${siteStatusHTML(g, dist)}
+      <div id="preMapBox"><div class="small" style="text-align:center;padding:30px 0">Газрын зураг ачаалж байна…</div></div>
+      <div id="preStatus">${siteStatusHTML(g, dist)}</div>
       <div class="actions">
         <button class="btn" id="gpNo">Болих</button>
         <button class="btn primary" id="gpYes" ${inside?'':'disabled'}>📷 Зураг авах</button>
       </div>`);
-    let done = false;
-    const finish = v => { if (done) return; done = true; clearInterval(timer); resolve(v); };
-    // харагдах цонх өөр аргаар (×, гадна дарах) хаагдвал ч бүртгэл үргэлжлэхгүй
+    let done = false, live = null;
+    const finish = v => { if (done) return; done = true; clearInterval(timer); if (live) live.stop(); resolve(v); };
     const timer = setInterval(() => { if (!document.body.contains(o)) finish(false); }, 300);
     o.querySelector('#gpNo').onclick = () => { closeModal(); finish(false); };
     if (inside) o.querySelector('#gpYes').onclick = () => { closeModal(); finish(true); };
+    const box = o.querySelector('#preMapBox');
+    const onStatus = (dd) => {
+      if (dd === null || dd === undefined) return;
+      const st = o.querySelector('#preStatus');
+      if (st) st.innerHTML = siteStatusHTML(g, dd);
+      const yes = o.querySelector('#gpYes');
+      if (yes) yes.disabled = dd > Number(g.radius_m || 300);
+    };
+    loadLeaflet().then(async () => {
+      live = await mountLiveMap(box, g, onStatus, true);
+      if (live) live.update({coords:{latitude: me.lat, longitude: me.lng, accuracy: pos.accuracy || 10}});
+    }).catch(() => { if (box) box.innerHTML = siteMapSVG(g, me); });
   });
 }
